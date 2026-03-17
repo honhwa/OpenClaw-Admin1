@@ -103,7 +103,6 @@ export class ApiClient {
             this._state = ConnectionState.CONNECTING
             this.emit('stateChange', ConnectionState.CONNECTING)
           }
-          // Emit connected event if version or updateAvailable is present, even if state didn't change
           if (message.version || message.updateAvailable) {
             this.emit('connected', { version: message.version, updateAvailable: message.updateAvailable })
           }
@@ -114,6 +113,12 @@ export class ApiClient {
           queueMicrotask(() => {
             this.emit('event', { type: 'event', event: evt.event, payload: evt.payload } as RPCEvent)
             this.emit(`event:${evt.event}`, evt.payload)
+          })
+          break
+
+        case 'backupProgress':
+          queueMicrotask(() => {
+            this.emit('backupProgress', message)
           })
           break
       }

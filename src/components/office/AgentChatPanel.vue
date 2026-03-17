@@ -1090,16 +1090,71 @@ function buildImageUrl(part: ChatMessageContent): string | undefined {
     return `data:${mimeType};base64,${part.data}`
   }
   if (part.mediaPath) {
+<<<<<<< HEAD
+    let mediaPath = part.mediaPath
+    
+    // 处理 MEDIA: 前缀
+    if (mediaPath.startsWith('MEDIA:')) {
+      mediaPath = mediaPath.slice(6)
+    }
+    
+    // 从 file:// URL 中提取相对路径
+    // 例如: file:///C:/Users/xxx/.openclaw/media/browser/xxx.png -> browser/xxx.png
+    if (mediaPath.startsWith('file://')) {
+      // 查找 .openclaw/media/ 后面的相对路径
+      const mediaIndex = mediaPath.indexOf('.openclaw/media/')
+      if (mediaIndex !== -1) {
+        mediaPath = mediaPath.slice(mediaIndex + '.openclaw/media/'.length)
+      } else {
+        // 如果没有找到标准路径，尝试提取文件名
+        const lastSlash = mediaPath.lastIndexOf('/')
+        if (lastSlash !== -1) {
+          mediaPath = `browser/${mediaPath.slice(lastSlash + 1)}`
+        }
+      }
+    }
+    
+=======
     const mediaPath = part.mediaPath
     if (mediaPath.startsWith('MEDIA:')) {
       const path = mediaPath.slice(6)
       return `/api/media?path=${encodeURIComponent(path)}`
     }
+>>>>>>> 85873852dfefe92345a786b9d45ae2b966a444bd
     return `/api/media?path=${encodeURIComponent(mediaPath)}`
   }
   return undefined
 }
 
+<<<<<<< HEAD
+/**
+ * 从路径中提取相对于媒体目录的相对路径
+ */
+function normalizeMediaPath(path: string): string {
+  // 处理 MEDIA: 前缀
+  if (path.startsWith('MEDIA:')) {
+    path = path.slice(6)
+  }
+  
+  // 从 file:// URL 中提取相对路径
+  // 例如: file:///C:/Users/xxx/.openclaw/media/browser/xxx.png -> browser/xxx.png
+  if (path.startsWith('file://')) {
+    const mediaIndex = path.indexOf('.openclaw/media/')
+    if (mediaIndex !== -1) {
+      return path.slice(mediaIndex + '.openclaw/media/'.length)
+    }
+    // 如果没有找到标准路径，尝试提取文件名
+    const lastSlash = path.lastIndexOf('/')
+    if (lastSlash !== -1) {
+      return `browser/${path.slice(lastSlash + 1)}`
+    }
+  }
+  
+  return path
+}
+
+=======
+>>>>>>> 85873852dfefe92345a786b9d45ae2b966a444bd
 function extractImageFromText(text: string): { images: ImageItemView[]; cleanedText: string } {
   const images: ImageItemView[] = []
   let cleanedText = text
@@ -1109,7 +1164,12 @@ function extractImageFromText(text: string): { images: ImageItemView[]; cleanedT
   while ((match = mdImageRegex.exec(text)) !== null) {
     const imagePath = match[2]
     if (imagePath && imagePath.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i)) {
+<<<<<<< HEAD
+      const normalizedPath = normalizeMediaPath(imagePath)
+      const imageUrl = `/api/media?path=${encodeURIComponent(normalizedPath)}`
+=======
       const imageUrl = `/api/media?path=${encodeURIComponent(imagePath)}`
+>>>>>>> 85873852dfefe92345a786b9d45ae2b966a444bd
       images.push({
         mimeType: `image/${imagePath.split('.').pop()?.toLowerCase() || 'png'}`,
         url: imageUrl,
@@ -1122,7 +1182,12 @@ function extractImageFromText(text: string): { images: ImageItemView[]; cleanedT
   while ((match = mediaPathRegex.exec(text)) !== null) {
     const imagePath = match[1]
     if (imagePath && imagePath.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i)) {
+<<<<<<< HEAD
+      const normalizedPath = normalizeMediaPath(imagePath)
+      const imageUrl = `/api/media?path=${encodeURIComponent(normalizedPath)}`
+=======
       const imageUrl = `/api/media?path=${encodeURIComponent(imagePath)}`
+>>>>>>> 85873852dfefe92345a786b9d45ae2b966a444bd
       images.push({
         mimeType: `image/${imagePath.split('.').pop()?.toLowerCase() || 'png'}`,
         url: imageUrl,

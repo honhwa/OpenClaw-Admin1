@@ -22,6 +22,7 @@ import {
   ConstructOutline,
   TerminalOutline,
   DesktopOutline,
+  ArchiveOutline,
 } from '@vicons/ionicons5'
 import { NIcon } from 'naive-ui'
 import { routes } from '@/router/routes'
@@ -50,6 +51,7 @@ const iconMap: Record<string, unknown> = {
   ConstructOutline,
   TerminalOutline,
   DesktopOutline,
+  ArchiveOutline,
 }
 
 function renderIcon(iconName: string) {

@@ -23,7 +23,7 @@ import {
   useMessage,
 } from 'naive-ui'
 import type { SelectOption } from 'naive-ui'
-import { CopyOutline, RefreshOutline, SendOutline, StopCircleOutline } from '@vicons/ionicons5'
+import { CopyOutline, RefreshOutline, SendOutline, StopCircleOutline, ChevronBackOutline, ChevronForwardOutline } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useChatStore } from '@/stores/chat'
@@ -62,6 +62,9 @@ const showAgentDetails = ref(false)
 const aborting = ref(false)
 const nowMs = ref(Date.now())
 let nowTimer: ReturnType<typeof setInterval> | null = null
+
+// 侧边栏折叠状态
+const sideCollapsed = ref(false)
 
 const roleFilterOptions = computed<SelectOption[]>(() => [
   { label: t('pages.chat.filters.roles.all'), value: 'all' },
@@ -376,16 +379,71 @@ function buildImageUrl(part: ChatMessageContent): string | undefined {
     return `data:${mimeType};base64,${part.data}`
   }
   if (part.mediaPath) {
+<<<<<<< HEAD
+    let mediaPath = part.mediaPath
+    
+    // 处理 MEDIA: 前缀
+    if (mediaPath.startsWith('MEDIA:')) {
+      mediaPath = mediaPath.slice(6)
+    }
+    
+    // 从 file:// URL 中提取相对路径
+    // 例如: file:///C:/Users/xxx/.openclaw/media/browser/xxx.png -> browser/xxx.png
+    if (mediaPath.startsWith('file://')) {
+      // 查找 .openclaw/media/ 后面的相对路径
+      const mediaIndex = mediaPath.indexOf('.openclaw/media/')
+      if (mediaIndex !== -1) {
+        mediaPath = mediaPath.slice(mediaIndex + '.openclaw/media/'.length)
+      } else {
+        // 如果没有找到标准路径，尝试提取文件名
+        const lastSlash = mediaPath.lastIndexOf('/')
+        if (lastSlash !== -1) {
+          mediaPath = `browser/${mediaPath.slice(lastSlash + 1)}`
+        }
+      }
+    }
+    
+=======
     const mediaPath = part.mediaPath
     if (mediaPath.startsWith('MEDIA:')) {
       const path = mediaPath.slice(6)
       return `/api/media?path=${encodeURIComponent(path)}`
     }
+>>>>>>> 85873852dfefe92345a786b9d45ae2b966a444bd
     return `/api/media?path=${encodeURIComponent(mediaPath)}`
   }
   return undefined
 }
 
+<<<<<<< HEAD
+/**
+ * 从路径中提取相对于媒体目录的相对路径
+ */
+function normalizeMediaPath(path: string): string {
+  // 处理 MEDIA: 前缀
+  if (path.startsWith('MEDIA:')) {
+    path = path.slice(6)
+  }
+  
+  // 从 file:// URL 中提取相对路径
+  // 例如: file:///C:/Users/xxx/.openclaw/media/browser/xxx.png -> browser/xxx.png
+  if (path.startsWith('file://')) {
+    const mediaIndex = path.indexOf('.openclaw/media/')
+    if (mediaIndex !== -1) {
+      return path.slice(mediaIndex + '.openclaw/media/'.length)
+    }
+    // 如果没有找到标准路径，尝试提取文件名
+    const lastSlash = path.lastIndexOf('/')
+    if (lastSlash !== -1) {
+      return `browser/${path.slice(lastSlash + 1)}`
+    }
+  }
+  
+  return path
+}
+
+=======
+>>>>>>> 85873852dfefe92345a786b9d45ae2b966a444bd
 function extractImageFromText(text: string): { images: ImageItemView[]; cleanedText: string } {
   const images: ImageItemView[] = []
   let cleanedText = text
@@ -395,7 +453,12 @@ function extractImageFromText(text: string): { images: ImageItemView[]; cleanedT
   while ((match = mdImageRegex.exec(text)) !== null) {
     const imagePath = match[2]
     if (imagePath && imagePath.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i)) {
+<<<<<<< HEAD
+      const normalizedPath = normalizeMediaPath(imagePath)
+      const imageUrl = `/api/media?path=${encodeURIComponent(normalizedPath)}`
+=======
       const imageUrl = `/api/media?path=${encodeURIComponent(imagePath)}`
+>>>>>>> 85873852dfefe92345a786b9d45ae2b966a444bd
       images.push({
         mimeType: `image/${imagePath.split('.').pop()?.toLowerCase() || 'png'}`,
         url: imageUrl,
@@ -408,7 +471,12 @@ function extractImageFromText(text: string): { images: ImageItemView[]; cleanedT
   while ((match = mediaPathRegex.exec(text)) !== null) {
     const imagePath = match[1]
     if (imagePath && imagePath.match(/\.(png|jpg|jpeg|gif|webp|bmp)$/i)) {
+<<<<<<< HEAD
+      const normalizedPath = normalizeMediaPath(imagePath)
+      const imageUrl = `/api/media?path=${encodeURIComponent(normalizedPath)}`
+=======
       const imageUrl = `/api/media?path=${encodeURIComponent(imagePath)}`
+>>>>>>> 85873852dfefe92345a786b9d45ae2b966a444bd
       images.push({
         mimeType: `image/${imagePath.split('.').pop()?.toLowerCase() || 'png'}`,
         url: imageUrl,
@@ -2548,9 +2616,14 @@ async function handleSend() {
         </NSpace>
       </template>
 
-      <NGrid cols="1 l:3" responsive="screen" :x-gap="12" :y-gap="12" class="chat-grid">
-        <NGridItem :span="1" class="chat-grid-side">
-          <NCard embedded :bordered="false" class="chat-side-card">
+      <NGrid cols="1 l:3" responsive="screen" :x-gap="12" :y-gap="12" class="chat-grid" :class="{ 'chat-grid--collapsed': sideCollapsed }">
+        <NGridItem :span="1" class="chat-grid-side" :class="{ 'chat-grid-side--collapsed': sideCollapsed }">
+          <!-- 折叠按钮 -->
+          <div class="chat-side-collapse-btn" @click="sideCollapsed = !sideCollapsed">
+            <NIcon :component="ChevronBackOutline" size="14" />
+          </div>
+          
+          <NCard v-show="!sideCollapsed" embedded :bordered="false" class="chat-side-card">
             <NSpace vertical :size="12">
               <div class="chat-side-stats">
                 <div class="chat-stat-item">
@@ -2676,7 +2749,12 @@ async function handleSend() {
           </NCard>
         </NGridItem>
 
-        <NGridItem :span="2" class="chat-grid-main">
+        <NGridItem :span="sideCollapsed ? 3 : 2" class="chat-grid-main">
+          <!-- 展开按钮（侧边栏折叠时显示） -->
+          <div v-if="sideCollapsed" class="chat-side-expand-btn" @click="sideCollapsed = false">
+            <NIcon :component="ChevronForwardOutline" size="14" />
+          </div>
+          
           <div class="chat-main-column">
             <NCard embedded :bordered="false" class="chat-transcript-card">
               <NSpace justify="space-between" align="center" style="margin-bottom: 10px;">
@@ -3248,6 +3326,74 @@ async function handleSend() {
   .chat-grid-main {
     min-height: 0;
     display: flex;
+    position: relative;
+  }
+
+  /* 折叠按钮样式 */
+  .chat-side-collapse-btn {
+    position: absolute;
+    right: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 48px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 0 4px 4px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    transition: all 0.2s ease;
+    opacity: 0.6;
+  }
+
+  .chat-side-collapse-btn:hover {
+    background: var(--bg-secondary);
+    opacity: 1;
+  }
+
+  /* 展开按钮样式（主内容区域左侧） */
+  .chat-side-expand-btn {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 48px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px 0 0 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    transition: all 0.2s ease;
+    opacity: 0.6;
+  }
+
+  .chat-side-expand-btn:hover {
+    background: var(--bg-secondary);
+    opacity: 1;
+  }
+
+  /* 侧边栏折叠状态 */
+  .chat-grid-side--collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: hidden;
+  }
+
+  .chat-grid-side--collapsed .chat-side-card {
+    display: none;
+  }
+
+  .chat-grid-side--collapsed .chat-side-collapse-btn {
+    display: none;
   }
 
   .chat-side-card {
@@ -4098,6 +4244,10 @@ body.wide-mode .chat-grid {
   display: grid !important;
   grid-template-columns: 460px 1fr !important;
   grid-template-rows: 1fr !important;
+}
+
+body.wide-mode .chat-grid--collapsed {
+  grid-template-columns: 1fr !important;
 }
 
 body.wide-mode .chat-grid > div {

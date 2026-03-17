@@ -4,6 +4,7 @@ export * from './channel'
 export * from './config'
 export * from './terminal'
 export * from './remote-desktop'
+export * from './backup'
 import type { ModelConfig, ToolPolicyConfig } from './config'
 
 export interface Skill {
