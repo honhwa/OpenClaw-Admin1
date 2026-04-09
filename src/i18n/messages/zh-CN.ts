@@ -1825,6 +1825,9 @@ export default {
           agents: '智能体',
           media: '媒体',
         },
+        tabIdentity: '身份',
+        tabModel: '模型',
+        tabTools: '工具',
       },
       detail: {
         id: 'ID',

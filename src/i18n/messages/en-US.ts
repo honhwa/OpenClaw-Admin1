@@ -1821,6 +1821,9 @@ export default {
           agents: 'Agents',
           media: 'Media',
         },
+        tabIdentity: 'Identity',
+        tabModel: 'Model',
+        tabTools: 'Tools',
       },
       detail: {
         id: 'ID',

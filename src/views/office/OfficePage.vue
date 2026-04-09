@@ -41,7 +41,7 @@ import {
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useWebSocketStore } from '@/stores/websocket'
-import { useOfficeStore } from '@/stores/office'
+import { useOfficeStore, type OfficeAgent } from '@/stores/office'
 import { useAgentStore } from '@/stores/agent'
 import { useSessionStore } from '@/stores/session'
 import { useChatStore } from '@/stores/chat'

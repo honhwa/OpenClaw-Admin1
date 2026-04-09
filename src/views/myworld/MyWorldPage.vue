@@ -43,7 +43,7 @@ import {
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useWebSocketStore } from '@/stores/websocket'
-import { useOfficeStore } from '@/stores/office'
+import { useOfficeStore, type OfficeAgent } from '@/stores/office'
 import { useAgentStore } from '@/stores/agent'
 import { useSessionStore } from '@/stores/session'
 import { useChatStore } from '@/stores/chat'
@@ -878,3 +878,4 @@ function getAgentEmoji(agent: OfficeAgent) { return agent.emoji || agent.identit
   .overview-grid { grid-template-columns: repeat(2, 1fr); }
   .agent-detail-grid { grid-template-columns: repeat(2, 1fr); }
 }
+</style>
