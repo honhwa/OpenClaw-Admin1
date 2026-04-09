@@ -337,7 +337,7 @@ const orangePos = computed(() => calculatePosition(orangeRef.value))
       <div 
         class="mouth"
         :style="{
-          left: (passwordLength > 0 && showPassword) ? '10px' : `${40 + (yellowPos.faceX || 0)}px`,
+          left: (passwordLength > 0 && showPassword) ? '10px' : `${60 + (yellowPos.faceX || 0)}px`,
           top: (passwordLength > 0 && showPassword) ? '88px' : `${88 + (yellowPos.faceY || 0)}px`
         }"
       />
