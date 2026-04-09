@@ -1,4 +1,5 @@
 import MarkdownIt from 'markdown-it'
+import DOMPurify from 'dompurify'
 import katex from 'katex'
 import hljs from 'highlight.js'
 
@@ -8,6 +9,8 @@ type SimpleMarkdownRenderOptions = {
   imageBasePath?: string
   workspace?: string
   authToken?: string
+  /** Sanitize HTML output to prevent XSS (default: true). Set to false only for trusted content. */
+  sanitize?: boolean
 }
 
 const markdownRenderer = new MarkdownIt({
@@ -535,8 +538,41 @@ export function renderSimpleMarkdown(markdown: string, options: SimpleMarkdownRe
   }
   
   const processedContent = processLatex(normalized)
-  
-  return markdownRenderer.render(processedContent, env)
+
+  const rawHtml = markdownRenderer.render(processedContent, env)
+
+  // Sanitize HTML to prevent XSS attacks (markdown-it has html: true, which allows raw HTML).
+  // Only skip sanitization when explicitly disabled for trusted content.
+  if (options.sanitize === false) {
+    return rawHtml
+  }
+
+  return DOMPurify.sanitize(rawHtml, {
+    ALLOWED_TAGS: [
+      'p', 'br', 'strong', 'em', 'b', 'i', 'u', 's', 'del', 'code', 'pre', 'kbd',
+      'blockquote', 'hr',
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      'ul', 'ol', 'li',
+      'table', 'thead', 'tbody', 'tr', 'th', 'td',
+      'a', 'img',
+      'div', 'span', 'button',
+      'svg', 'path', 'rect', 'line', 'polyline', 'polygon', 'circle', 'ellipse',
+      'input', 'style',
+      'sup', 'sub',
+    ],
+    ALLOWED_ATTR: [
+      'href', 'src', 'alt', 'title', 'class', 'id',
+      'target', 'rel',
+      'data-heading-number',
+      'data-code',
+      'viewBox', 'xmlns', 'd', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'width', 'height',
+      'type', 'name', 'value', 'placeholder',
+      'allow', 'allowfullscreen',
+    ],
+    ALLOW_DATA_ATTR: false,
+    FORCE_BODY: false,
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+\-.]+(?:[^a-z+\-.]|$))/i,
+  })
 }
 
 export function extractTocHeadings(markdown: string): { level: number; text: string; id: string }[] {

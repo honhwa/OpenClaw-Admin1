@@ -28,6 +28,7 @@
     "better-sqlite3": "^12.6.2",
     "check-disk-space": "^3.4.0",
     "cors": "^2.8.6",
+    "dompurify": "^3.3.3",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "highlight.js": "^11.11.1",
