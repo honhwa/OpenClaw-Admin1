@@ -120,7 +120,7 @@ function clearLoginAttempts(username) {
 }
 
 // ========== Password Hashing ==========
-export function hashPassword(password, salt = null) {
+function hashPassword(password, salt = null) {
   salt = salt || randomBytes(SALT_LENGTH).toString('hex')
   const hash = createHash('sha512')
   let data = salt + password
@@ -131,7 +131,7 @@ export function hashPassword(password, salt = null) {
   return { hash: data.slice(0, 128), salt }
 }
 
-export function verifyPassword(password, storedHash, salt) {
+function verifyPassword(password, storedHash, salt) {
   const { hash } = hashPassword(password, salt)
   try {
     const a = Buffer.from(hash, 'hex')
@@ -143,27 +143,27 @@ export function verifyPassword(password, storedHash, salt) {
   }
 }
 
-export function generateToken() {
+function generateToken() {
   return randomUUID() + '-' + randomBytes(32).toString('hex')
 }
 
-export function hashToken(token) {
+function hashToken(token) {
   return createHash('sha256').update(token).digest('hex')
 }
 
 // ========== User Management ==========
-export function getUserById(userId) {
+function getUserById(userId) {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId)
   if (!user) return null
   delete user.password_hash
   return user
 }
 
-export function getUserByUsername(username) {
+function getUserByUsername(username) {
   return db.prepare('SELECT * FROM users WHERE username = ?').get(username)
 }
 
-export function getUserPermissions(userId) {
+function getUserPermissions(userId) {
   const rows = db.prepare(`
     SELECT r.permissions FROM roles r
     JOIN user_roles ur ON ur.role_id = r.id
@@ -178,19 +178,19 @@ export function getUserPermissions(userId) {
   return [...perms]
 }
 
-export function userHasPermission(userId, permissionName) {
+function userHasPermission(userId, permissionName) {
   const perms = getUserPermissions(userId)
   if (perms.includes('perm_system_admin')) return true
   return perms.includes(permissionName)
 }
 
-export function userHasAnyPermission(userId, permissionNames) {
+function userHasAnyPermission(userId, permissionNames) {
   const perms = getUserPermissions(userId)
   if (perms.includes('perm_system_admin')) return true
   return permissionNames.some(p => perms.includes(p))
 }
 
-export function getUserRoles(userId) {
+function getUserRoles(userId) {
   const rows = db.prepare(`
     SELECT r.*, ur.granted_at, ur.granted_by,
            u.display_name as granted_by_name
@@ -203,7 +203,7 @@ export function getUserRoles(userId) {
 }
 
 // ========== Session Management ==========
-export function createSession(userId, ipAddress = null, userAgent = null) {
+function createSession(userId, ipAddress = null, userAgent = null) {
   const token = generateToken()
   const tokenHash = hashToken(token)
   const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 days
@@ -220,7 +220,7 @@ export function createSession(userId, ipAddress = null, userAgent = null) {
 }
 
 // Validate session token
-export function validateSession(token) {
+function validateSession(token) {
   if (!token) return null
   const tokenHash = hashToken(token)
   const session = db.prepare(`
@@ -248,30 +248,30 @@ export function validateSession(token) {
   }
 }
 
-export function invalidateSession(token) {
+function invalidateSession(token) {
   if (!token) return false
   const tokenHash = hashToken(token)
   const result = db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash)
   return result.changes > 0
 }
 
-export function invalidateAllUserSessions(userId) {
+function invalidateAllUserSessions(userId) {
   db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId)
 }
 
-export function cleanupExpiredSessions() {
+function cleanupExpiredSessions() {
   const result = db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now())
   return result.changes
 }
 
 // ========== Audit Log Extended Functions ==========
-export function getAuditLogById(id) {
+function getAuditLogById(id) {
   const log = db.prepare('SELECT * FROM audit_logs WHERE id = ?').get(id)
   if (!log) return null
   return { ...log, details: JSON.parse(log.details || '{}') }
 }
 
-export function getAuditLogStatistics({ startTime, endTime } = {}) {
+function getAuditLogStatistics({ startTime, endTime } = {}) {
   const conditions = []
   const params = []
 
@@ -330,7 +330,7 @@ export function getAuditLogStatistics({ startTime, endTime } = {}) {
   }
 
 // ========== Audit Logging ==========
-export function createAuditLog({ userId, username, action, resource, resourceId, details, ipAddress, userAgent, status = 'success', errorMessage = null }) {
+function createAuditLog({ userId, username, action, resource, resourceId, details, ipAddress, userAgent, status = 'success', errorMessage = null }) {
   const id = randomUUID()
   db.prepare(`
     INSERT INTO audit_logs (id, user_id, username, action, resource, resource_id, details, ip_address, user_agent, status, error_message)
@@ -351,7 +351,7 @@ export function createAuditLog({ userId, username, action, resource, resourceId,
   return id
 }
 
-export function getAuditLogs({ page = 1, pageSize = 50, userId, action, resource, status, startTime, endTime }) {
+function getAuditLogs({ page = 1, pageSize = 50, userId, action, resource, status, startTime, endTime }) {
   const conditions = []
   const params = []
 
@@ -383,7 +383,7 @@ export function getAuditLogs({ page = 1, pageSize = 50, userId, action, resource
 }
 
 // ========== RBAC Middleware ==========
-export function requirePermission(permissionName) {
+function requirePermission(permissionName) {
   return (req, res, next) => {
     if (!req.auth) {
       return res.status(401).json({ ok: false, error: 'Unauthorized', code: 'AUTH_REQUIRED' })
@@ -405,7 +405,7 @@ export function requirePermission(permissionName) {
   }
 }
 
-export function requireAnyPermission(permissionNames) {
+function requireAnyPermission(permissionNames) {
   return (req, res, next) => {
     if (!req.auth) {
       return res.status(401).json({ ok: false, error: 'Unauthorized', code: 'AUTH_REQUIRED' })
@@ -427,7 +427,7 @@ export function requireAnyPermission(permissionNames) {
   }
 }
 
-export function requireRole(roleName) {
+function requireRole(roleName) {
   return (req, res, next) => {
     if (!req.auth) {
       return res.status(401).json({ ok: false, error: 'Unauthorized', code: 'AUTH_REQUIRED' })
@@ -440,7 +440,7 @@ export function requireRole(roleName) {
 }
 
 // ========== Auth Middleware ==========
-export function attachAuth(req, res, next) {
+function attachAuth(req, res, next) {
   let token = req.headers.authorization?.replace('Bearer ', '')
 
   // SECURITY: Query param token support removed to prevent log leakage
@@ -461,14 +461,14 @@ export function attachAuth(req, res, next) {
   next()
 }
 
-export function requireAuth(req, res, next) {
+function requireAuth(req, res, next) {
   if (!req.auth) {
     return res.status(401).json({ ok: false, error: 'Unauthorized', code: 'AUTH_REQUIRED' })
   }
   next()
 }
 
-export function optionalAuth(req, res, next) {
+function optionalAuth(req, res, next) {
   attachAuth(req, res, next)
 }
 

@@ -16,6 +16,11 @@ import db, { createBackupRecord, updateBackupRecord, getBackupRecord, getBackupR
 import { registerOfficeRoutes, migrateOfficeTables } from './office.js'
 import { registerMyWorldRoutes, migrateMyWorldTables } from './myworld.js'
 import auditRoutes from './routes/audit.routes.js'
+import batchRoutes from './routes/batch.routes.js'
+import searchRoutes from './routes/search.routes.js'
+import statsRoutes from './routes/stats.routes.js'
+import rbacRoutes from './routes/rbac.routes.js'
+import themesRoutes from './routes/themes.routes.js'
 import {
   hashPassword, verifyPassword, generateToken, createSession,
   validateSession, invalidateSession, invalidateAllUserSessions,
@@ -3753,6 +3758,21 @@ registerMyWorldRoutes(app)
 
 // Register Audit Log API routes
 app.use('/api/audit', auditRoutes)
+
+// Register Batch Operations API routes
+app.use('/api/batch', batchRoutes)
+
+// Register Search API routes
+app.use('/api/search', searchRoutes)
+
+// Register Statistics API routes
+app.use('/api/stats', statsRoutes)
+
+// Register RBAC API routes
+app.use('/api/rbac', rbacRoutes)
+
+// Register Themes API routes
+app.use('/api/themes', themesRoutes)
 
 // =====================================================
 // R-01: User & Role Management API

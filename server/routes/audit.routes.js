@@ -1,11 +1,13 @@
 import { Router } from 'express'
+import db from '../database.js'
 import { requirePermission } from '../auth.js'
 import { getAuditLogs, getAuditLogById, getAuditLogStatistics } from '../auth.js'
 
 const router = Router()
 
 // 所有审计日志路由都需要 audit:view 权限
-router.use(requirePermission('perm_audit_view'))
+// 注意：使用 optionalAuth 因为这是受保护的路由，需要权限检查
+// router.use(requirePermission('perm_audit_view'))
 
 /**
  * @route GET /api/audit/logs
@@ -19,7 +21,7 @@ router.use(requirePermission('perm_audit_view'))
  * @query startTime - 开始时间（毫秒时间戳）
  * @query endTime - 结束时间（毫秒时间戳）
  */
-router.get('/logs', (req, res) => {
+router.get('/logs', requirePermission('perm_audit_view'), (req, res) => {
   try {
     const {
       page = 1,
@@ -66,7 +68,7 @@ router.get('/logs', (req, res) => {
  * @description 获取单条审计日志详情
  * @param id - 日志 ID
  */
-router.get('/logs/:id', (req, res) => {
+router.get('/logs/:id', requirePermission('perm_audit_view'), (req, res) => {
   try {
     const { id } = req.params
     const log = getAuditLogById(id)
@@ -99,7 +101,7 @@ router.get('/logs/:id', (req, res) => {
  * @query startTime - 开始时间（毫秒时间戳）
  * @query endTime - 结束时间（毫秒时间戳）
  */
-router.get('/stats', (req, res) => {
+router.get('/stats', requirePermission('perm_audit_view'), (req, res) => {
   try {
     const { startTime, endTime } = req.query
 
@@ -126,7 +128,7 @@ router.get('/stats', (req, res) => {
  * @route GET /api/audit/actions
  * @description 获取所有唯一的动作类型列表
  */
-router.get('/actions', (req, res) => {
+router.get('/actions', requirePermission('perm_audit_view'), (req, res) => {
   try {
     const rows = db.prepare('SELECT DISTINCT action FROM audit_logs ORDER BY action').all()
     res.json({
@@ -147,7 +149,7 @@ router.get('/actions', (req, res) => {
  * @route GET /api/audit/resources
  * @description 获取所有唯一的资源类型列表
  */
-router.get('/resources', (req, res) => {
+router.get('/resources', requirePermission('perm_audit_view'), (req, res) => {
   try {
     const rows = db.prepare('SELECT DISTINCT resource FROM audit_logs WHERE resource IS NOT NULL ORDER BY resource').all()
     res.json({
@@ -170,7 +172,7 @@ router.get('/resources', (req, res) => {
  * @body olderThan - 删除早于该时间戳的日志（毫秒）
  * @requires admin 角色
  */
-router.delete('/logs', requireRole('admin'), (req, res) => {
+router.delete('/logs', requirePermission('perm_audit_view'), requireRole('admin'), (req, res) => {
   try {
     const { olderThan } = req.body
 
