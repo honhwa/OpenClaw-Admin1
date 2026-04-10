@@ -22,6 +22,8 @@ import {
   SaveOutline,
   WifiOutline,
   TimeOutline,
+  PeopleOutline,
+  NotificationsCircleOutline,
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
@@ -316,6 +318,33 @@ onUnmounted(() => {
                 <NTag type="success" :bordered="false" round>
                   {{ presenceEntries.length }} {{ t('pages.system.online') }}
                 </NTag>
+              </NSpace>
+            </NCard>
+          </NGridItem>
+        </NGrid>
+
+        <NGrid cols="1 s:2" responsive="screen" :x-gap="16" :y-gap="16" style="margin-top: 16px;">
+          <NGridItem>
+            <NCard size="small" embedded hoverable @click="router.push('/system/users')">
+              <NSpace align="center" :size="12">
+                <NIcon :component="PeopleOutline" color="#2080f0" size="22" />
+                <div>
+                  <NText strong style="font-size: 14px;">用户管理</NText>
+                  <br />
+                  <NText depth="3" style="font-size: 12px;">添加、编辑、删除系统用户与角色</NText>
+                </div>
+              </NSpace>
+            </NCard>
+          </NGridItem>
+          <NGridItem>
+            <NCard size="small" embedded hoverable @click="router.push('/system/notifications')">
+              <NSpace align="center" :size="12">
+                <NIcon :component="NotificationsCircleOutline" color="#f0a020" size="22" />
+                <div>
+                  <NText strong style="font-size: 14px;">通知渠道</NText>
+                  <br />
+                  <NText depth="3" style="font-size: 12px;">配置告警通知的发送渠道与接收端</NText>
+                </div>
               </NSpace>
             </NCard>
           </NGridItem>

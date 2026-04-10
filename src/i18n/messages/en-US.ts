@@ -23,6 +23,8 @@ export default {
     settings: 'Settings',
     remoteDesktop: 'Remote Desktop',
     backup: 'Data Backup',
+    systemUsers: 'User Management',
+    systemNotifications: 'Notification Channels',
   },
   common: {
     all: 'All',

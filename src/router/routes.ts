@@ -83,6 +83,18 @@ export const routes: RouteRecordRaw[] = [
         meta: { titleKey: 'routes.system', icon: 'PulseOutline' },
       },
       {
+        path: 'system/users',
+        name: 'SystemUsers',
+        component: () => import('@/views/system/UsersPage.vue'),
+        meta: { titleKey: 'routes.systemUsers', icon: 'PeopleOutline', hidden: true },
+      },
+      {
+        path: 'system/notifications',
+        name: 'SystemNotifications',
+        component: () => import('@/views/system/NotificationChannelsPage.vue'),
+        meta: { titleKey: 'routes.systemNotifications', icon: 'NotifiableOutline', hidden: true },
+      },
+      {
         path: 'terminal',
         name: 'Terminal',
         component: () => import('@/views/terminal/TerminalPage.vue'),

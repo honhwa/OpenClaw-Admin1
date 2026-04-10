@@ -3750,6 +3750,152 @@ registerOfficeRoutes(app)
 migrateMyWorldTables()
 registerMyWorldRoutes(app)
 
+// =====================================================
+// R-01: User & Role Management API
+// =====================================================
+app.get('/api/users', authMiddleware, requirePermission('users:manage'), (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT u.id, u.username, u.display_name, u.role, u.status, u.email, u.avatar, u.created_at, u.updated_at, u.last_login_at
+      FROM users u ORDER BY u.created_at DESC
+    `).all()
+    const users = rows.map(r => ({ ...r, lastLoginAt: r.last_login_at, createdAt: r.created_at, updatedAt: r.updated_at }))
+    res.json({ ok: true, users })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+app.post('/api/users', authMiddleware, requirePermission('users:manage'), (req, res) => {
+  try {
+    const { username, password, displayName, role, email } = req.body
+    if (!username || !password) return res.status(400).json({ ok: false, error: 'username and password required' })
+    const { hash, salt } = hashPassword(password)
+    const id = randomUUID()
+    db.prepare(`INSERT INTO users (id, username, password_hash, salt, display_name, role, email) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, username, hash, salt, displayName || username, role || 'viewer', email || null)
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id)
+    res.json({ ok: true, user })
+  } catch (err) {
+    if (err.message.includes('UNIQUE')) return res.status(409).json({ ok: false, error: 'Username already exists' })
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+app.put('/api/users/:id', authMiddleware, requirePermission('users:manage'), (req, res) => {
+  try {
+    const { id } = req.params
+    const { displayName, role, status, email } = req.body
+    db.prepare(`UPDATE users SET display_name = ?, role = ?, status = ?, email = ?, updated_at = ? WHERE id = ?`).run(displayName || null, role || null, status || null, email || null, Date.now(), id)
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id)
+    res.json({ ok: true, user })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+app.delete('/api/users/:id', authMiddleware, requirePermission('users:manage'), (req, res) => {
+  try {
+    const { id } = req.params
+    const deleted = db.prepare('DELETE FROM users WHERE id = ?').run(id)
+    res.json({ ok: deleted.changes > 0 })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+app.get('/api/roles', authMiddleware, requirePermission('roles:manage'), (req, res) => {
+  try {
+    const rows = db.prepare('SELECT * FROM roles ORDER BY is_system DESC, name ASC').all()
+    const roles = rows.map(r => ({ ...r, permissions: JSON.parse(r.permissions || '[]') }))
+    res.json({ ok: true, roles })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+app.get('/api/permissions', authMiddleware, requirePermission('roles:manage'), (req, res) => {
+  try {
+    const rows = db.prepare('SELECT * FROM permissions ORDER BY resource, action').all()
+    res.json({ ok: true, permissions: rows })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+// =====================================================
+// R-02: Notification API (DB-backed)
+// =====================================================
+app.get('/api/notifications', authMiddleware, (req, res) => {
+  try {
+    const { page = 1, pageSize = 20, unreadOnly } = req.query
+    const userId = req.user?.id || null
+    const result = getNotifications({ userId, page: Number(page), pageSize: Number(pageSize), unreadOnly: unreadOnly === 'true' })
+    res.json({ ok: true, ...result })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+app.put('/api/notifications/:id/read', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params
+    const userId = req.user?.id || null
+    const ok = markNotificationRead(id, userId)
+    res.json({ ok })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+app.put('/api/notifications/read-all', authMiddleware, (req, res) => {
+  try {
+    const userId = req.user?.id || null
+    const count = markAllNotificationsRead(userId)
+    res.json({ ok: true, count })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+app.delete('/api/notifications/:id', authMiddleware, requirePermission('notifications:manage'), (req, res) => {
+  try {
+    const { id } = req.params
+    const userId = req.user?.id || null
+    const ok = deleteNotification(id, userId)
+    res.json({ ok })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+// =====================================================
+// R-02: Notification Channels (Alert Destinations)
+// =====================================================
+const alertChannels = [
+  { id: 'in_app', name: '应用内通知', type: 'in_app', enabled: true, description: '在应用内通知中心显示' },
+  { id: 'email', name: '邮件通知', type: 'email', enabled: false, description: '通过邮件发送通知' },
+  { id: 'feishu', name: '飞书通知', type: 'feishu', enabled: false, description: '通过飞书机器人发送通知' },
+]
+
+app.get('/api/notification-channels', authMiddleware, requirePermission('notifications:manage'), (req, res) => {
+  res.json({ ok: true, channels: alertChannels })
+})
+
+app.put('/api/notification-channels/:id', authMiddleware, requirePermission('notifications:manage'), (req, res) => {
+  try {
+    const { id } = req.params
+    const { enabled, config } = req.body
+    const channel = alertChannels.find(c => c.id === id)
+    if (!channel) return res.status(404).json({ ok: false, error: 'Channel not found' })
+    channel.enabled = enabled ?? channel.enabled
+    if (config) channel.config = config
+    res.json({ ok: true, channel })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message })
+  }
+})
+
+// =====================================================
 server.listen(envConfig.PORT, () => {
   console.log(`Server running on http://localhost:${envConfig.PORT}`)
   console.log(`OpenClaw Gateway: ${envConfig.OPENCLAW_WS_URL}`)

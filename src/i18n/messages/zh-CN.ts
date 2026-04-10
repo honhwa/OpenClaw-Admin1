@@ -23,6 +23,8 @@ export default {
     settings: '系统设置',
     remoteDesktop: '远程桌面',
     backup: '数据备份',
+    systemUsers: '用户管理',
+    systemNotifications: '通知渠道',
   },
   common: {
     all: '全部',
@@ -1566,6 +1568,14 @@ export default {
       memory: '内存',
       disk: '磁盘',
       network: '网络',
+    },
+    users: {
+      title: '用户管理',
+      subtitle: '管理系统用户账户与角色权限',
+    },
+    notificationChannels: {
+      title: '通知渠道',
+      subtitle: '配置系统告警通知的发送渠道',
     },
     terminal: {
       subtitle: '通过 SSE 协议连接远程终端，支持多节点切换和全屏模式',
