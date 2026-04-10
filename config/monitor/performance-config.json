@@ -1,0 +1,34 @@
+{
+  "monitoring": {
+    "interval_seconds": 60,
+    "retention_days": 30
+  },
+  "thresholds": {
+    "cpu_warning": 70,
+    "cpu_critical": 90,
+    "memory_warning": 70,
+    "memory_critical": 90,
+    "disk_warning": 80,
+    "disk_critical": 95
+  },
+  "metrics": {
+    "cpu": true,
+    "memory": true,
+    "disk": true,
+    "network": true,
+    "nodejs_memory": true,
+    "database_connections": true
+  },
+  "alerts": {
+    "enabled": true,
+    "channels": ["feishu", "log"],
+    "cooldown_minutes": 15
+  },
+  "database": {
+    "host": "localhost",
+    "port": 3306,
+    "name": "openclaw_admin",
+    "user": "monitor_user",
+    "table": "performance_metrics"
+  }
+}

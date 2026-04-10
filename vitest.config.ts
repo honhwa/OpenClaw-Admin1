@@ -10,6 +10,7 @@ export default defineConfig({
     include: [
       'tests/unit/**/*.test.ts',
       'tests/integration/**/*.test.ts',
+      'tests/e2e/**/*.test.ts',
       'tests/security/**/*.test.ts',
       'tests/performance/**/*.test.ts',
     ],
