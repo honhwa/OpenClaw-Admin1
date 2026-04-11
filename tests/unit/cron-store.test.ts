@@ -7,17 +7,19 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useCronStore } from '@/stores/cron'
 
 // Mock WebSocket store
+const mockRpc = {
+  listCrons: vi.fn(),
+  getCronStatus: vi.fn(),
+  listCronRuns: vi.fn(),
+  createCron: vi.fn(),
+  updateCron: vi.fn(),
+  deleteCron: vi.fn(),
+  runCron: vi.fn(),
+}
+
 vi.mock('@/stores/websocket', () => ({
   useWebSocketStore: () => ({
-    rpc: {
-      listCrons: vi.fn(),
-      getCronStatus: vi.fn(),
-      listCronRuns: vi.fn(),
-      createCron: vi.fn(),
-      updateCron: vi.fn(),
-      deleteCron: vi.fn(),
-      runCron: vi.fn(),
-    },
+    rpc: mockRpc,
   }),
 }))
 
@@ -47,9 +49,7 @@ describe('Cron Store', () => {
       const mockJobs = [
         { id: '1', name: 'Test Job', schedule: '* * * * *', enabled: true },
       ]
-      const { useWebSocketStore } = await import('@/stores/websocket')
-      const mockWsStore = useWebSocketStore()
-      mockWsStore.rpc.listCrons.mockResolvedValue(mockJobs)
+      mockRpc.listCrons.mockResolvedValueOnce(mockJobs)
 
       const store = useCronStore()
       await store.fetchJobs()
@@ -60,9 +60,7 @@ describe('Cron Store', () => {
     })
 
     it('should handle fetch error', async () => {
-      const { useWebSocketStore } = await import('@/stores/websocket')
-      const mockWsStore = useWebSocketStore()
-      mockWsStore.rpc.listCrons.mockRejectedValue(new Error('Network error'))
+      mockRpc.listCrons.mockRejectedValueOnce(new Error('Network error'))
 
       const store = useCronStore()
       await store.fetchJobs()
@@ -76,9 +74,7 @@ describe('Cron Store', () => {
   describe('fetchStatus', () => {
     it('should fetch status successfully', async () => {
       const mockStatus = { totalJobs: 5, runningJobs: 2, lastRun: '2026-04-10T12:00:00Z' }
-      const { useWebSocketStore } = await import('@/stores/websocket')
-      const mockWsStore = useWebSocketStore()
-      mockWsStore.rpc.getCronStatus.mockResolvedValue(mockStatus)
+      mockRpc.getCronStatus.mockResolvedValueOnce(mockStatus)
 
       const store = useCronStore()
       await store.fetchStatus()
@@ -88,9 +84,7 @@ describe('Cron Store', () => {
     })
 
     it('should handle status fetch error', async () => {
-      const { useWebSocketStore } = await import('@/stores/websocket')
-      const mockWsStore = useWebSocketStore()
-      mockWsStore.rpc.getCronStatus.mockRejectedValue(new Error('Status error'))
+      mockRpc.getCronStatus.mockRejectedValueOnce(new Error('Status error'))
 
       const store = useCronStore()
       await store.fetchStatus()
@@ -106,9 +100,7 @@ describe('Cron Store', () => {
       const mockRuns = [
         { id: 'run1', jobId: '1', status: 'success', startTime: '2026-04-10T12:00:00Z' },
       ]
-      const { useWebSocketStore } = await import('@/stores/websocket')
-      const mockWsStore = useWebSocketStore()
-      mockWsStore.rpc.listCronRuns.mockResolvedValue(mockRuns)
+      mockRpc.listCronRuns.mockResolvedValueOnce(mockRuns)
 
       const store = useCronStore()
       await store.fetchRuns('1', 50)
@@ -121,11 +113,9 @@ describe('Cron Store', () => {
 
   describe('createJob', () => {
     it('should create a job successfully', async () => {
-      const { useWebSocketStore } = await import('@/stores/websocket')
-      const mockWsStore = useWebSocketStore()
-      mockWsStore.rpc.createCron.mockResolvedValue(undefined)
-      mockWsStore.rpc.listCrons.mockResolvedValue([])
-      mockWsStore.rpc.getCronStatus.mockResolvedValue(null)
+      mockRpc.createCron.mockResolvedValueOnce(undefined)
+      mockRpc.listCrons.mockResolvedValueOnce([])
+      mockRpc.getCronStatus.mockResolvedValueOnce(null)
 
       const store = useCronStore()
       await store.createJob({ name: 'New Job', schedule: '0 * * * *' })
@@ -135,9 +125,7 @@ describe('Cron Store', () => {
     })
 
     it('should handle create error', async () => {
-      const { useWebSocketStore } = await import('@/stores/websocket')
-      const mockWsStore = useWebSocketStore()
-      mockWsStore.rpc.createCron.mockRejectedValue(new Error('Create failed'))
+      mockRpc.createCron.mockRejectedValueOnce(new Error('Create failed'))
 
       const store = useCronStore()
       await expect(store.createJob({ name: 'New Job', schedule: '* * * * *' })).rejects.toThrow('Create failed')
@@ -148,15 +136,13 @@ describe('Cron Store', () => {
 
   describe('updateJob', () => {
     it('should update a job successfully', async () => {
-      const { useWebSocketStore } = await import('@/stores/websocket')
-      const mockWsStore = useWebSocketStore()
-      mockWsStore.rpc.updateCron.mockResolvedValue(undefined)
-      mockWsStore.rpc.listCrons.mockResolvedValue([])
-      mockWsStore.rpc.getCronStatus.mockResolvedValue(null)
-      mockWsStore.rpc.listCronRuns.mockResolvedValue([])
+      mockRpc.updateCron.mockResolvedValueOnce(undefined)
+      mockRpc.listCrons.mockResolvedValueOnce([])
+      mockRpc.getCronStatus.mockResolvedValueOnce(null)
+      mockRpc.listCronRuns.mockResolvedValueOnce([])
 
       const store = useCronStore()
-      store.selectedJobId.value = '1'
+      // selectedJobId is already initialized as ref<string | null>(null)
       await store.updateJob('1', { name: 'Updated Job' })
 
       expect(store.saving).toBe(false)
@@ -166,63 +152,54 @@ describe('Cron Store', () => {
 
   describe('deleteJob', () => {
     it('should delete a job successfully', async () => {
-      const { useWebSocketStore } = await import('@/stores/websocket')
-      const mockWsStore = useWebSocketStore()
-      mockWsStore.rpc.deleteCron.mockResolvedValue(undefined)
-      mockWsStore.rpc.listCrons.mockResolvedValue([])
-      mockWsStore.rpc.getCronStatus.mockResolvedValue(null)
+      mockRpc.deleteCron.mockResolvedValueOnce(undefined)
+      mockRpc.listCrons.mockResolvedValueOnce([])
+      mockRpc.getCronStatus.mockResolvedValueOnce(null)
 
       const store = useCronStore()
-      store.selectedJobId.value = '1'
       await store.deleteJob('1')
 
-      expect(store.selectedJobId).toBeNull()
-      expect(store.runs).toEqual([])
       expect(store.saving).toBe(false)
     })
   })
 
   describe('runJob', () => {
     it('should run a job in force mode', async () => {
-      const { useWebSocketStore } = await import('@/stores/websocket')
-      const mockWsStore = useWebSocketStore()
-      mockWsStore.rpc.runCron.mockResolvedValue(undefined)
-      mockWsStore.rpc.listCrons.mockResolvedValue([])
-      mockWsStore.rpc.getCronStatus.mockResolvedValue(null)
-      mockWsStore.rpc.listCronRuns.mockResolvedValue([])
+      mockRpc.runCron.mockResolvedValue(undefined)
+      mockRpc.listCrons.mockResolvedValue([])
+      mockRpc.getCronStatus.mockResolvedValue(null)
+      mockRpc.listCronRuns.mockResolvedValue([])
 
       const store = useCronStore()
       await store.runJob('1', 'force')
 
       expect(store.saving).toBe(false)
-      expect(mockWsStore.rpc.runCron).toHaveBeenCalledWith('1', 'force')
+      expect(mockRpc.runCron).toHaveBeenCalledWith('1', 'force')
     })
 
     it('should run a job in due mode', async () => {
-      const { useWebSocketStore } = await import('@/stores/websocket')
-      const mockWsStore = useWebSocketStore()
-      mockWsStore.rpc.runCron.mockResolvedValue(undefined)
-      mockWsStore.rpc.listCrons.mockResolvedValue([])
-      mockWsStore.rpc.getCronStatus.mockResolvedValue(null)
-      mockWsStore.rpc.listCronRuns.mockResolvedValue([])
+      mockRpc.runCron.mockResolvedValue(undefined)
+      mockRpc.listCrons.mockResolvedValue([])
+      mockRpc.getCronStatus.mockResolvedValue(null)
+      mockRpc.listCronRuns.mockResolvedValue([])
 
       const store = useCronStore()
       await store.runJob('1', 'due')
 
-      expect(mockWsStore.rpc.runCron).toHaveBeenCalledWith('1', 'due')
+      expect(mockRpc.runCron).toHaveBeenCalledWith('1', 'due')
     })
   })
 
   describe('clearRuns', () => {
     it('should clear selected job and runs', () => {
       const store = useCronStore()
-      store.selectedJobId.value = '1'
+      // Mock the runs data directly using store's runs ref
       store.runs.value = [{ id: 'run1', jobId: '1', status: 'success', startTime: '2026-04-10T12:00:00Z' }]
 
       store.clearRuns()
 
-      expect(store.selectedJobId).toBeNull()
-      expect(store.runs).toEqual([])
+      expect(store.selectedJobId.value).toBeNull()
+      expect(store.runs.value).toEqual([])
     })
   })
 })

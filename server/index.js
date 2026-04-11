@@ -145,6 +145,12 @@ app.use((req, res, next) => {
 // Attach auth for all routes (optional auth - won't block)
 app.use(attachAuth)
 
+// Attach gateway store to requests for wsStore.rpc access
+app.use((req, res, next) => {
+  req.wsStore = { rpc: gateway }
+  next()
+})
+
 // ========== SECURITY HARDENING: Global Security Headers ==========
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff')
@@ -3835,6 +3841,12 @@ migrateOfficeTables()
 registerOfficeRoutes(app)
 migrateMyWorldTables()
 registerMyWorldRoutes(app)
+
+// Register Cron and Session API routes
+import cronRoutes from './routes/cron.routes.js'
+import sessionRoutes from './routes/session.routes.js'
+app.use('/api/crons', cronRoutes)
+app.use('/api/sessions', sessionRoutes)
 
 // Register Audit Log API routes
 app.use('/api/audit', auditRoutes)

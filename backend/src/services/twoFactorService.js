@@ -4,7 +4,7 @@
  */
 
 const crypto = require('crypto');
-const db = require('./database');
+const { query } = require('../utils/database');
 const speakeasy = require('speakeasy');
 const qrcode = require('qrcode');
 
