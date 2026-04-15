@@ -1,16 +1,27 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { NSelect, NSpace, NTag } from 'naive-ui'
-import { useI18n } from 'vue-i18n'
+import { h } from 'vue'
+import { NSelect, NSpace } from 'naive-ui'
 import { useHermesConnectionStore } from '@/stores/hermes/connection'
 
-const { t } = useI18n()
 const connStore = useHermesConnectionStore()
 
-const options = computed(() => [
+const gatewayLogos: Record<string, string> = {
+  openclaw: '🦞',
+  hermes: '⚡',
+}
+
+const options = [
   { label: 'OpenClaw', value: 'openclaw' },
   { label: 'Hermes', value: 'hermes' },
-])
+]
+
+function renderLabel(option: { label: string; value: string }) {
+  const logo = gatewayLogos[option.value] || '🔌'
+  return h('span', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
+    h('span', { style: { fontSize: '16px' } }, logo),
+    h('span', {}, option.label),
+  ])
+}
 
 function handleChange(val: string) {
   connStore.switchGateway(val as 'openclaw' | 'hermes')
@@ -22,17 +33,10 @@ function handleChange(val: string) {
     <NSelect
       :value="connStore.currentGateway"
       :options="options"
+      :render-label="renderLabel"
       size="small"
       style="width: 140px"
       @update:value="handleChange"
     />
-    <NTag
-      v-if="connStore.currentGateway === 'hermes'"
-      :type="connStore.hermesConnected ? 'success' : 'error'"
-      size="small"
-      round
-    >
-      {{ connStore.hermesConnected ? t('common.online') : t('common.offline') }}
-    </NTag>
   </NSpace>
 </template>

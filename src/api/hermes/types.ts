@@ -24,13 +24,14 @@ export interface HermesMessage {
   id?: string
   role: 'user' | 'assistant' | 'tool' | 'system'
   content: string
-  timestamp?: string
+  timestamp?: string | number
   model?: string
   provider?: string
   stopReason?: string
   toolCallId?: string
   toolName?: string
   isError?: boolean
+  name?: string
 }
 
 export interface HermesChatSendParams {
@@ -60,6 +61,18 @@ export interface HermesSession {
   messageCount?: number
   model?: string
   platform?: string
+}
+
+export interface HermesSessionRaw {
+  id: string
+  title?: string | null
+  preview?: string
+  started_at?: number
+  ended_at?: number
+  last_active?: number
+  message_count?: number
+  model?: string
+  source?: string
 }
 
 export interface HermesSessionDetail extends HermesSession {
@@ -197,27 +210,51 @@ export interface HermesEnvVar {
 
 // --- 使用分析相关 ---
 
+export interface HermesUsageDailyItem {
+  day: string
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  reasoning_tokens: number
+  estimated_cost: number
+  actual_cost: number
+  sessions: number
+}
+
+export interface HermesUsageByModel {
+  model: string
+  input_tokens: number
+  output_tokens: number
+  estimated_cost: number
+  sessions: number
+}
+
+export interface HermesUsageTotals {
+  total_input: number
+  total_output: number
+  total_cache_read: number
+  total_reasoning: number
+  total_estimated_cost: number
+  total_actual_cost: number
+  total_sessions: number
+}
+
 export interface HermesUsageAnalytics {
-  days: number
-  total_input_tokens: number
-  total_output_tokens: number
-  total_cost_usd: number
-  daily?: Array<{
-    date: string
-    input_tokens: number
-    output_tokens: number
-    cost_usd: number
-  }>
+  daily: HermesUsageDailyItem[]
+  by_model: HermesUsageByModel[]
+  totals: HermesUsageTotals
+  period_days: number
 }
 
 // --- 聊天流式增量 ---
 
 export interface HermesChatDelta {
-  id: string
-  object: string
-  created: number
-  model: string
-  choices: Array<{
+  id?: string
+  object?: string
+  created?: number
+  model?: string
+  session_id?: string
+  choices?: Array<{
     index: number
     delta: {
       role?: string
@@ -231,9 +268,19 @@ export interface HermesChatDelta {
           arguments: string
         }
       }>
+      tool_responses?: Array<{
+        index: number
+        id: string
+        function_name?: string
+        content: string
+      }>
     }
     finish_reason: string | null
   }>
+  // Hermes-style tool event (root-level)
+  tool?: string
+  emoji?: string
+  label?: string
 }
 
 // --- API 响应 ---
@@ -243,4 +290,75 @@ export interface HermesApiResponse<T = unknown> {
   data?: T
   error?: string
   message?: string
+}
+
+// --- Provider 配置模板 ---
+
+export interface HermesProviderConfig {
+  id: string
+  name: string
+  description?: string
+  envKey: string
+  baseUrlKey?: string
+  defaultBaseUrl?: string
+  docsUrl?: string
+  recommended?: boolean
+}
+
+export const HERMES_PROVIDERS: HermesProviderConfig[] = [
+  { id: 'openrouter', name: 'OpenRouter', description: '推荐，支持 200+ 模型', envKey: 'OPENROUTER_API_KEY', baseUrlKey: 'OPENROUTER_BASE_URL', defaultBaseUrl: 'https://openrouter.ai/api/v1', docsUrl: 'https://openrouter.ai/keys', recommended: true },
+  { id: 'openai', name: 'OpenAI', envKey: 'OPENAI_API_KEY', baseUrlKey: 'OPENAI_BASE_URL', defaultBaseUrl: 'https://api.openai.com/v1', docsUrl: 'https://platform.openai.com/api-keys' },
+  { id: 'anthropic', name: 'Anthropic', envKey: 'ANTHROPIC_API_KEY', docsUrl: 'https://console.anthropic.com/' },
+  { id: 'google', name: 'Google Gemini', envKey: 'GOOGLE_API_KEY', baseUrlKey: 'GEMINI_BASE_URL', docsUrl: 'https://aistudio.google.com/app/apikey' },
+  { id: 'zhipu', name: 'z.ai / ZhipuAI GLM', envKey: 'GLM_API_KEY', baseUrlKey: 'GLM_BASE_URL', defaultBaseUrl: 'https://api.z.ai/api/paas/v4', docsUrl: 'https://open.bigmodel.cn/' },
+  { id: 'kimi', name: 'Kimi / Moonshot', envKey: 'KIMI_API_KEY', baseUrlKey: 'KIMI_BASE_URL', defaultBaseUrl: 'https://api.moonshot.ai/v1', docsUrl: 'https://platform.moonshot.cn/' },
+  { id: 'minimax', name: 'MiniMax', envKey: 'MINIMAX_API_KEY', baseUrlKey: 'MINIMAX_BASE_URL', defaultBaseUrl: 'https://api.minimax.io/v1', docsUrl: 'https://www.minimax.io/' },
+  { id: 'deepseek', name: 'DeepSeek', envKey: 'DEEPSEEK_API_KEY', baseUrlKey: 'DEEPSEEK_BASE_URL', defaultBaseUrl: 'https://api.deepseek.com/v1', docsUrl: 'https://platform.deepseek.com/' },
+  { id: 'huggingface', name: 'Hugging Face', envKey: 'HF_TOKEN', baseUrlKey: 'HF_BASE_URL', defaultBaseUrl: 'https://router.huggingface.co/v1', docsUrl: 'https://huggingface.co/settings/tokens' },
+  { id: 'nous', name: 'Nous Portal', envKey: 'NOUS_API_KEY', baseUrlKey: 'HERMES_PORTAL_BASE_URL', docsUrl: 'https://nousresearch.com/' },
+  { id: 'custom', name: '自定义端点', description: '配置自定义 OpenAI 兼容端点', envKey: 'OPENAI_API_KEY', baseUrlKey: 'OPENAI_BASE_URL' },
+]
+
+// --- 配置 Schema 相关 ---
+
+export type ConfigFieldType = 'text' | 'number' | 'boolean' | 'select' | 'textarea'
+
+export interface ConfigFieldValidation {
+  min?: number
+  max?: number
+  pattern?: string
+  patternMessage?: string
+  required?: boolean
+}
+
+export interface ConfigFieldOption {
+  value: string | number | boolean
+  label: string
+  description?: string
+}
+
+export interface ConfigFieldSchema {
+  key: string
+  label: string
+  description?: string
+  type: ConfigFieldType
+  defaultValue?: string | number | boolean
+  options?: ConfigFieldOption[]
+  validation?: ConfigFieldValidation
+  placeholder?: string
+  unit?: string
+  group?: string
+}
+
+export interface ConfigCategory {
+  id: string
+  label: string
+  icon?: string
+  description?: string
+  fields: ConfigFieldSchema[]
+}
+
+export interface HermesConfigSchema {
+  version: string
+  categories: ConfigCategory[]
 }

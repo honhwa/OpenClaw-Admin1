@@ -1,4 +1,4 @@
-# OpenClaw Admin - AI 智能体管理平台
+# Claw Admin - AI 智能体管理平台
 
 <p align="center">
   <strong>现代化的 AI 智能体网关管理控制台</strong>
@@ -15,17 +15,17 @@
   <a href="README.en.md">English</a>
 </p>
 
----
+***
 
 ## 项目简介
 
-OpenClaw Admin 是一个基于 Vue 3 构建的现代化 AI 智能体管理平台，同时支持 **OpenClaw Gateway** 和 **Hermes Agent** 两大 AI 智能体网关。通过直观的可视化操作，用户可以轻松管理 AI 智能体、会话、模型、频道、技能等核心功能，并提供完整的 Web CLI 终端体验。
+Claw Admin 是一个基于 Vue 3 构建的现代化 AI 智能体管理平台，同时支持 **OpenClaw Gateway** 和 **Hermes Agent** 两大 AI 智能体网关。通过直观的可视化操作，用户可以轻松管理 AI 智能体、会话、模型、频道、技能等核心功能，并提供完整的 Web CLI 终端体验。
 
 ### 版本兼容性
 
 | OpenClaw Admin | OpenClaw Gateway | Hermes Agent | 状态    |
 | -------------- | ---------------- | ------------ | ----- |
-| 0.2.7          | 2026.4.5         | 2026.4.x     | ✅ 已验证 |
+| 0.2.7          | 2026.4.5         | 2026.4.9     | ✅ 已验证 |
 
 ### 核心亮点
 
@@ -36,7 +36,7 @@ OpenClaw Admin 是一个基于 Vue 3 构建的现代化 AI 智能体管理平台
 - 🌍 **国际化支持**：内置中英文双语支持，无缝切换
 - 🎨 **现代 UI**：基于 Naive UI 的响应式设计，支持亮色/暗色主题
 
----
+***
 
 ## 功能特性
 
@@ -190,7 +190,7 @@ OpenClaw Admin 是一个基于 Vue 3 构建的现代化 AI 智能体管理平台
 - 外观主题设置
 - 环境变量配置
 
----
+***
 
 ### 二、Hermes Agent 模块
 
@@ -220,7 +220,7 @@ OpenClaw Admin 是一个基于 Vue 3 构建的现代化 AI 智能体管理平台
 
 - 模型列表（OpenAI 兼容格式）
 - 当前模型切换
-- 模型能力标签（vision、function_calling 等）
+- 模型能力标签（vision、function\_calling 等）
 
 #### Hermes 频道管理
 
@@ -263,7 +263,7 @@ OpenClaw Admin 是一个基于 Vue 3 构建的现代化 AI 智能体管理平台
 - **无 WebSocket**：纯 SSE + HTTP POST 双通道，兼容严格网络策略
 - **终端功能**：全屏模式、右键粘贴、选中复制、自适应大小
 
----
+***
 
 ## 技术栈
 
@@ -287,13 +287,13 @@ OpenClaw Admin 是一个基于 Vue 3 构建的现代化 AI 智能体管理平台
 
 ### 通信与数据
 
-| 技术          | 版本   | 说明              |
-| ----------- | ---- | --------------- |
-| WebSocket   | -    | 实时双向通信（OpenClaw） |
-| SSE         | -    | 服务器推送事件（Hermes） |
-| markdown-it | 14.x | Markdown 解析器    |
-| highlight.js| 11.x | 代码高亮            |
-| KaTeX       | 16.x | LaTeX 数学公式渲染    |
+| 技术           | 版本   | 说明               |
+| ------------ | ---- | ---------------- |
+| WebSocket    | -    | 实时双向通信（OpenClaw） |
+| SSE          | -    | 服务器推送事件（Hermes）  |
+| markdown-it  | 14.x | Markdown 解析器     |
+| highlight.js | 11.x | 代码高亮             |
+| KaTeX        | 16.x | LaTeX 数学公式渲染     |
 
 ### 后端服务
 
@@ -302,7 +302,7 @@ OpenClaw Admin 是一个基于 Vue 3 构建的现代化 AI 智能体管理平台
 | Express        | 5.x  | Node.js Web 框架 |
 | ws             | 8.x  | WebSocket 实现   |
 | better-sqlite3 | 12.x | SQLite 数据库     |
-| node-pty       | 1.x  | 伪终端支持（CLI 终端） |
+| node-pty       | 1.x  | 伪终端支持（CLI 终端）  |
 | ssh2           | 1.x  | SSH 客户端        |
 
 ### 终端相关
@@ -313,7 +313,7 @@ OpenClaw Admin 是一个基于 Vue 3 构建的现代化 AI 智能体管理平台
 | @xterm/addon-fit       | 0.11.x | 终端自适应 |
 | @xterm/addon-web-links | 0.12.x | 链接支持  |
 
----
+***
 
 ## 快速开始
 
@@ -369,7 +369,7 @@ npm run build
 npm run preview
 ```
 
----
+***
 
 ## Hermes Agent 集成
 
@@ -377,11 +377,11 @@ npm run preview
 
 Hermes Agent 需要单独安装和配置。OpenClaw Admin 通过 HTTP API 与 Hermes Agent 通信，需要以下服务运行：
 
-| 服务 | 默认端口 | 说明 |
-| --- | --- | --- |
-| Hermes Web UI | 9119 | 管理 REST API（会话、配置、技能等） |
+| 服务                | 默认端口 | 说明                        |
+| ----------------- | ---- | ------------------------- |
+| Hermes Web UI     | 9119 | 管理 REST API（会话、配置、技能等）    |
 | Hermes API Server | 8642 | OpenAI 兼容 API（聊天、模型、Runs） |
-| Hermes CLI | - | Python CLI 工具（Web 终端使用） |
+| Hermes CLI        | -    | Python CLI 工具（Web 终端使用）   |
 
 ### 安装 Hermes Agent
 
@@ -493,23 +493,23 @@ HERMES_CLI_PATH=/path/to/hermes         # Hermes CLI 路径（可选，默认自
 
 Hermes CLI 终端支持以下启动参数：
 
-| 参数 | 类型 | 说明 |
-| --- | --- | --- |
-| `-m` / `--model` | string | 指定模型（如 `anthropic/claude-sonnet-4`） |
-| `--provider` | string | 指定供应商（auto/openrouter/anthropic/custom 等） |
-| `-s` / `--skills` | string[] | 预加载技能（可多个） |
-| `-t` / `--toolsets` | string | 工具集（逗号分隔） |
-| `-r` / `--resume` | string | 恢复指定会话 |
-| `-c` / `--continue` | string | 继续命名会话 |
-| `--yolo` | boolean | 跳过危险命令确认 |
-| `--checkpoints` | boolean | 启用文件系统检查点 |
-| `--max-turns` | number | 最大工具迭代次数 |
-| `-v` / `--verbose` | boolean | 详细输出 |
-| `-Q` / `--quiet` | boolean | 安静模式 |
+| 参数                  | 类型        | 说明                                        |
+| ------------------- | --------- | ----------------------------------------- |
+| `-m` / `--model`    | string    | 指定模型（如 `anthropic/claude-sonnet-4`）       |
+| `--provider`        | string    | 指定供应商（auto/openrouter/anthropic/custom 等） |
+| `-s` / `--skills`   | string\[] | 预加载技能（可多个）                                |
+| `-t` / `--toolsets` | string    | 工具集（逗号分隔）                                 |
+| `-r` / `--resume`   | string    | 恢复指定会话                                    |
+| `-c` / `--continue` | string    | 继续命名会话                                    |
+| `--yolo`            | boolean   | 跳过危险命令确认                                  |
+| `--checkpoints`     | boolean   | 启用文件系统检查点                                 |
+| `--max-turns`       | number    | 最大工具迭代次数                                  |
+| `-v` / `--verbose`  | boolean   | 详细输出                                      |
+| `-Q` / `--quiet`    | boolean   | 安静模式                                      |
 
 在 Web 界面中，展开 **启动配置** 面板即可可视化配置这些参数。
 
----
+***
 
 ## 项目结构
 
@@ -635,7 +635,7 @@ openclaw-admin/
 └── .env                            # 本地环境变量（由 .env.example 复制）
 ```
 
----
+***
 
 ## 开发指南
 
@@ -647,12 +647,12 @@ openclaw-admin/
 
 ### 命名约定
 
-| 类型         | 命名规范           | 示例                       |
-| ---------- | -------------- | ------------------------ |
-| 组件         | PascalCase.vue | `ConnectionStatus.vue`   |
-| 路由页面       | *Page.vue      | `HermesChatPage.vue`     |
-| Store      | camelCase.ts   | `hermes-cli.ts`          |
-| Composable | use*.ts        | `useTheme.ts`            |
+| 类型         | 命名规范           | 示例                     |
+| ---------- | -------------- | ---------------------- |
+| 组件         | PascalCase.vue | `ConnectionStatus.vue` |
+| 路由页面       | \*Page.vue     | `HermesChatPage.vue`   |
+| Store      | camelCase.ts   | `hermes-cli.ts`        |
+| Composable | use\*.ts       | `useTheme.ts`          |
 
 ### 构建验证
 
@@ -700,7 +700,7 @@ LOG_LEVEL=INFO
 MEDIA_DIR=
 ```
 
----
+***
 
 ## API 参考
 
@@ -764,24 +764,24 @@ MEDIA_DIR=
 
 后端通过 `hermes-proxy.js` 代理到 Hermes Agent 的两个服务：
 
-| 目标服务 | 默认端口 | 代理前缀 | 说明 |
-| --- | --- | --- | --- |
-| Hermes Web UI | 9119 | `/api/hermes/` | 管理 API（会话、配置、技能、定时任务等） |
+| 目标服务              | 默认端口 | 代理前缀              | 说明                        |
+| ----------------- | ---- | ----------------- | ------------------------- |
+| Hermes Web UI     | 9119 | `/api/hermes/`    | 管理 API（会话、配置、技能、定时任务等）    |
 | Hermes API Server | 8642 | `/api/hermes/v1/` | OpenAI 兼容 API（聊天、模型、Runs） |
 
 ### Hermes CLI 终端 API
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/hermes-cli/stream` | 创建/重连 CLI 会话（SSE 流） |
-| POST | `/api/hermes-cli/input` | 发送键盘输入到 CLI 进程 |
-| POST | `/api/hermes-cli/resize` | 调整终端大小 |
-| POST | `/api/hermes-cli/destroy` | 销毁 CLI 会话 |
-| POST | `/api/hermes-cli/heartbeat` | 心跳保活 |
-| GET | `/api/hermes-cli/sessions` | 列出所有 CLI 会话 |
-| POST | `/api/hermes-cli/sessions/rename` | 重命名会话 |
+| 方法   | 路径                                | 说明                  |
+| ---- | --------------------------------- | ------------------- |
+| GET  | `/api/hermes-cli/stream`          | 创建/重连 CLI 会话（SSE 流） |
+| POST | `/api/hermes-cli/input`           | 发送键盘输入到 CLI 进程      |
+| POST | `/api/hermes-cli/resize`          | 调整终端大小              |
+| POST | `/api/hermes-cli/destroy`         | 销毁 CLI 会话           |
+| POST | `/api/hermes-cli/heartbeat`       | 心跳保活                |
+| GET  | `/api/hermes-cli/sessions`        | 列出所有 CLI 会话         |
+| POST | `/api/hermes-cli/sessions/rename` | 重命名会话               |
 
----
+***
 
 ## 安全说明
 
@@ -790,13 +790,13 @@ MEDIA_DIR=
 - API Key 仅在输入新值时提交，未输入则保持原值
 - Hermes CLI 会话有 2 小时孤儿超时自动回收
 
----
+***
 
 ## 许可证
 
 [MIT License](LICENSE)
 
----
+***
 
 ## 贡献指南
 
@@ -810,7 +810,7 @@ MEDIA_DIR=
 4. 推送到分支 (`git push origin feature/amazing-feature`)
 5. 创建 Pull Request
 
----
+***
 
 ## 联系方式
 
@@ -823,9 +823,12 @@ MEDIA_DIR=
 欢迎加入微信交流群，获取最新动态和技术支持：
 
 ![微信群](docs/images/微信群.png)
+![微信群-2](docs/images/微信群-2.png)
+![微信群-3](docs/images/微信群-3.png)
+![微信群-4](docs/images/微信群-4.png)
 
----
+***
 
 <p align="center">
-  Made with ❤️ by <a href="https://github.com/itq5/OpenClaw-Admin">OpenClaw Admin</a> Team
+  Made with ❤️ by <a href="https://github.com/itq5/OpenClaw-Admin">Claw Admin</a> Team
 </p>

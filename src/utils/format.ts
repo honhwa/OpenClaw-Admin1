@@ -40,6 +40,23 @@ export function formatDate(date: string | number | Date): string {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
+    timeZone: 'Asia/Shanghai',
+  })
+}
+
+export function formatDateShort(date: string | number | Date): string {
+  const parsed = normalizeDateInput(date)
+  if (!parsed) {
+    return typeof date === 'string' && date.trim() ? date : '-'
+  }
+
+  return parsed.toLocaleString(getPreferredLocale(), {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Shanghai',
   })
 }
 
@@ -72,11 +89,13 @@ export function formatRelativeTime(date: string | number | Date): string {
     if (diff < 60000) return '刚刚'
     if (diff < 3600000) return `${Math.floor(diff / 60000)} 分钟前`
     if (diff < 86400000) return `${Math.floor(diff / 3600000)} 小时前`
+    if (diff < 172800000) return '昨天'
     if (diff < 2592000000) return `${Math.floor(diff / 86400000)} 天前`
   } else {
     if (diff < 60000) return 'Just now'
     if (diff < 3600000) return `${Math.floor(diff / 60000)} min ago`
     if (diff < 86400000) return `${Math.floor(diff / 3600000)} hr ago`
+    if (diff < 172800000) return 'Yesterday'
     if (diff < 2592000000) return `${Math.floor(diff / 86400000)} day ago`
   }
   return formatDate(date)

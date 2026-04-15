@@ -1,6 +1,7 @@
 import type {
   HermesStatus,
   HermesSession,
+  HermesSessionRaw,
   HermesMessage,
   HermesModel,
   HermesConfig,
@@ -14,6 +15,22 @@ import type {
   HermesSearchResult,
   HermesMemoryContent,
 } from './types'
+
+function transformSession(raw: HermesSessionRaw): HermesSession {
+  return {
+    id: raw.id,
+    title: raw.title || raw.preview || undefined,
+    messageCount: raw.message_count ?? 0,
+    model: raw.model,
+    platform: raw.source,
+    createdAt: raw.started_at ? new Date(raw.started_at * 1000).toISOString() : undefined,
+    updatedAt: raw.last_active
+      ? new Date(raw.last_active * 1000).toISOString()
+      : raw.ended_at
+        ? new Date(raw.ended_at * 1000).toISOString()
+        : undefined,
+  }
+}
 
 // ============================================================================
 // Custom Errors
@@ -164,10 +181,14 @@ export class HermesApiClient {
 
   async listSessions(limit?: number): Promise<HermesSession[]> {
     const params = limit != null ? `?limit=${limit}` : ''
-    const result = await this.request<any>(`/sessions${params}`)
-    // 后端返回 { sessions: [...], total, limit, offset } 格式
-    if (Array.isArray(result)) return result
-    return result.sessions || result.data || []
+    const result = await this.request<{ sessions: HermesSessionRaw[]; total?: number; limit?: number; offset?: number } | HermesSessionRaw[]>(`/sessions${params}`)
+    let rawSessions: HermesSessionRaw[]
+    if (Array.isArray(result)) {
+      rawSessions = result
+    } else {
+      rawSessions = result.sessions || []
+    }
+    return rawSessions.map(transformSession)
   }
 
   async searchSessions(query: string, limit?: number): Promise<HermesSearchResult> {
@@ -206,13 +227,31 @@ export class HermesApiClient {
     onDone?: () => void,
     onError?: (error: string) => void,
     abortSignal?: AbortSignal,
+    onSessionId?: (sessionId: string) => void,
+    onModel?: (model: string) => void,
   ): Promise<void> {
     const body: Record<string, unknown> = {
       messages,
       stream: true,
     }
+    // Note: session_id in body is for reference, but X-Hermes-Session-Id header
+    // is what Hermes uses for session continuity
     if (sessionId) body.session_id = sessionId
     if (model) body.model = model
+
+    // Build headers with X-Hermes-Session-Id for session continuity
+    const headers: Record<string, string> = {
+      ...this.headers(),
+    }
+    if (sessionId) {
+      headers['X-Hermes-Session-Id'] = sessionId
+    }
+
+    console.log('[HermesClient] sendChatStream request:', {
+      sessionId,
+      headerSessionId: headers['X-Hermes-Session-Id'],
+      bodySessionId: body.session_id,
+    })
 
     let response: Response
     try {
@@ -220,6 +259,13 @@ export class HermesApiClient {
         method: 'POST',
         body: JSON.stringify(body),
         signal: abortSignal,
+        headers,
+      })
+
+      // Log response headers for debugging
+      console.log('[HermesClient] Response headers:', {
+        'X-Hermes-Session-Id': response.headers.get('X-Hermes-Session-Id'),
+        'Content-Type': response.headers.get('Content-Type'),
       })
     } catch (err: any) {
       if (err instanceof HermesApiError) {
@@ -285,7 +331,30 @@ export class HermesApiClient {
             try {
               const parsed: HermesChatDelta = JSON.parse(data)
 
-              for (const choice of parsed.choices) {
+              // Handle session_id from response
+              if (parsed.session_id) {
+                onSessionId?.(parsed.session_id)
+              }
+
+              // Handle model from response
+              if (parsed.model) {
+                onModel?.(parsed.model)
+              }
+
+              // Handle Hermes-style tool events (root-level tool field)
+              if (parsed.tool !== undefined) {
+                onToolCall?.({
+                  type: 'hermes-tool',
+                  tool: parsed.tool,
+                  emoji: parsed.emoji,
+                  label: parsed.label,
+                  toolName: parsed.tool,
+                  id: `tool-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                })
+                continue
+              }
+
+              for (const choice of parsed.choices || []) {
                 // Handle text content delta
                 if (choice.delta?.content) {
                   deltaCount++
@@ -303,14 +372,35 @@ export class HermesApiClient {
                     })
                   }
                 }
+                // Handle tool call results
+                if (choice.delta?.tool_responses) {
+                  for (const tr of choice.delta.tool_responses) {
+                    onToolCall?.({
+                      index: tr.index,
+                      toolCallId: tr.id,
+                      toolName: tr.function_name || 'unknown',
+                      phase: 'result',
+                      result: tr.content,
+                    })
+                  }
+                }
               }
             } catch {
               // Non-JSON data line, could be a tool call event or other format
               // Try to extract tool call information
-              if (onToolCall && trimmed.includes('tool_call')) {
+              if (onToolCall && data.includes('"tool"')) {
                 try {
                   const toolData = JSON.parse(data)
-                  onToolCall(toolData)
+                  if (toolData.tool) {
+                    onToolCall({
+                      type: 'hermes-tool',
+                      tool: toolData.tool,
+                      emoji: toolData.emoji,
+                      label: toolData.label,
+                      toolName: toolData.tool,
+                      id: `tool-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    })
+                  }
                 } catch {
                   // Ignore unparseable tool call data
                 }
@@ -326,7 +416,7 @@ export class HermesApiClient {
         if (trimmed.startsWith('data: ') && trimmed.slice(6) !== '[DONE]') {
           try {
             const parsed: HermesChatDelta = JSON.parse(trimmed.slice(6))
-            for (const choice of parsed.choices) {
+            for (const choice of parsed.choices || []) {
               if (choice.delta?.content) {
                 onDelta(choice.delta.content)
               }
@@ -559,6 +649,33 @@ export class HermesApiClient {
     platforms[platformId] = { ...((platforms[platformId] as Record<string, unknown>) || {}), ...platformConfig }
     await this.updateConfig({ platforms })
     return { id: platformId, ...platformConfig }
+  }
+
+  async createPlatform(platformId: string, platformConfig: Record<string, unknown>): Promise<any> {
+    const config = await this.getConfig()
+    const platforms = (config.platforms || {}) as Record<string, unknown>
+    if (platforms[platformId]) {
+      throw new Error(`Platform "${platformId}" already exists`)
+    }
+    platforms[platformId] = {
+      name: platformId,
+      type: platformId,
+      enabled: true,
+      ...platformConfig,
+    }
+    await this.updateConfig({ platforms })
+    const updatedPlatform = platforms[platformId] as Record<string, unknown> | undefined
+    return { id: platformId, ...(updatedPlatform || {}) }
+  }
+
+  async deletePlatform(platformId: string): Promise<void> {
+    const config = await this.getConfig()
+    const platforms = (config.platforms || {}) as Record<string, unknown>
+    if (!platforms[platformId]) {
+      return
+    }
+    delete platforms[platformId]
+    await this.updateConfig({ platforms })
   }
 
   // --------------------------------------------------------------------------

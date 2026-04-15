@@ -1,18 +1,19 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import { useHermesConnectionStore } from './connection'
-import type { HermesConfig, HermesConfigUpdateParams } from '@/api/hermes/types'
+import type { HermesConfig, HermesConfigUpdateParams, HermesConfigSchema } from '@/api/hermes/types'
 
 export const useHermesConfigStore = defineStore('hermes-config', () => {
   // ---- 状态 ----
 
   const config = ref<HermesConfig | null>(null)
   const rawConfig = ref('')
-  const configSchema = ref<unknown>(null)
+  const configSchema = ref<HermesConfigSchema | null>(null)
   const defaults = ref<HermesConfig | null>(null)
   const loading = ref(false)
   const saving = ref(false)
   const lastError = ref<string | null>(null)
+  const modifiedFields = ref<Set<string>>(new Set())
 
   // ---- 方法 ----
 
@@ -199,6 +200,50 @@ export const useHermesConfigStore = defineStore('hermes-config', () => {
     }
   }
 
+  // ---- 修改追踪 ----
+
+  /**
+   * 重置所有修改状态
+   */
+  function resetModified() {
+    modifiedFields.value = new Set()
+  }
+
+  /**
+   * 检查字段是否已修改
+   */
+  function isFieldModified(key: string): boolean {
+    return modifiedFields.value.has(key)
+  }
+
+  /**
+   * 标记字段为已修改
+   */
+  function markFieldModified(key: string) {
+    const newSet = new Set(modifiedFields.value)
+    newSet.add(key)
+    modifiedFields.value = newSet
+  }
+
+  /**
+   * 取消字段修改标记
+   */
+  function unmarkFieldModified(key: string) {
+    const newSet = new Set(modifiedFields.value)
+    newSet.delete(key)
+    modifiedFields.value = newSet
+  }
+
+  /**
+   * 是否有任何修改
+   */
+  const hasModifications = computed(() => modifiedFields.value.size > 0)
+
+  /**
+   * 获取已修改字段列表
+   */
+  const modifiedFieldsList = computed(() => Array.from(modifiedFields.value))
+
   return {
     // 状态
     config,
@@ -208,6 +253,9 @@ export const useHermesConfigStore = defineStore('hermes-config', () => {
     loading,
     saving,
     lastError,
+    modifiedFields,
+    hasModifications,
+    modifiedFieldsList,
     // 方法
     fetchConfig,
     updateConfig,
@@ -216,5 +264,9 @@ export const useHermesConfigStore = defineStore('hermes-config', () => {
     fetchDefaults,
     fetchConfigSchema,
     fetchAll,
+    resetModified,
+    isFieldModified,
+    markFieldModified,
+    unmarkFieldModified,
   }
 })

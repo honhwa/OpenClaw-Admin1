@@ -33,6 +33,7 @@ import {
   TrashOutline,
   CreateOutline,
   LogOutOutline,
+  EllipseOutline,
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useHermesCliStore, type HermesCliSessionInfo } from '@/stores/hermes-cli'
@@ -51,8 +52,8 @@ const terminal = shallowRef<any>(null)
 const fitAddon = shallowRef<any>(null)
 const resizeObserver = shallowRef<ResizeObserver | null>(null)
 
-// Launch config state
-const showLaunchConfig = ref(false)
+const showLaunchConfig = ref(true)
+const showAdvancedOptions = ref(false)
 
 const launchConfigExpandedNames = computed<string[]>(() =>
   showLaunchConfig.value ? ['launch-config'] : [],
@@ -125,7 +126,6 @@ function buildCliArgs(): string[] {
   return args
 }
 
-// Session management
 const editingSessionId = ref<string | null>(null)
 const editingSessionName = ref('')
 
@@ -161,7 +161,7 @@ function isCurrentSession(session: HermesCliSessionInfo): boolean {
 
 function formatTime(ts: number): string {
   const d = new Date(ts)
-  return d.toLocaleTimeString()
+  return d.toLocaleTimeString(undefined, { timeZone: 'Asia/Shanghai' })
 }
 
 async function initTerminal() {
@@ -311,7 +311,6 @@ async function handleNewSession() {
     return
   }
 
-  // Clear terminal before new session
   terminal.value?.clear()
   terminal.value?.write('\x1b[33mLaunching new session...\x1b[0m\r\n')
 
@@ -352,7 +351,6 @@ function handleConnect() {
   if (hermesCliStore.isConnected) {
     handleDetach()
   } else if (hermesCliStore.currentSession) {
-    // Reconnect to last session
     handleReconnectSession({ id: hermesCliStore.currentSession.id, name: hermesCliStore.currentSession.name || null, args: [], createdAt: 0, lastHeartbeat: 0, status: 'running' })
   } else {
     handleNewSession()
@@ -448,26 +446,16 @@ onMounted(async () => {
   window.addEventListener('resize', handleTerminalResize)
   window.addEventListener('keydown', handleKeyDown)
 
-  // Fetch existing sessions
   await hermesCliStore.fetchSessions()
 
-  // Auto-connect to last session if available, otherwise create new
   if (hermesCliStore.sessions.length > 0) {
     const lastSession = hermesCliStore.sessions[hermesCliStore.sessions.length - 1]!
     if (lastSession.status === 'running') {
       try {
         await hermesCliStore.connect(120, 36, lastSession.id!)
       } catch {
-        // Fall through to new session
+        // Fall through
       }
-    }
-  }
-
-  if (!hermesCliStore.isConnected) {
-    try {
-      await hermesCliStore.connectNew([], 120, 36)
-    } catch {
-      // Connection will be handled by error state
     }
   }
 })
@@ -488,330 +476,367 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <NSpace vertical :size="16">
-    <!-- Session List Card -->
-    <NCard :title="t('pages.hermesCli.runningSessions')" class="app-card" size="small">
-      <template #header-extra>
-        <NButton
-          type="primary"
-          size="small"
-          class="app-toolbar-btn"
-          @click="handleNewSession"
-        >
-          <template #icon><NIcon :component="AddOutline" /></template>
-          {{ t('pages.hermesCli.newSession') }}
-        </NButton>
-      </template>
-
-      <div v-if="hermesCliStore.sessions.length === 0" style="padding: 8px 0;">
-        <NEmpty :description="t('pages.hermesCli.noSessions')" size="small" />
-      </div>
-
-      <template v-else>
-        <!-- Connected sessions -->
-        <template v-if="connectedSessions.length > 0">
-          <NText depth="3" style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
-            {{ t('pages.hermesCli.connectedSessions') }} ({{ connectedSessions.length }})
-          </NText>
-          <div style="margin-top: 6px;">
-            <div
-              v-for="session in connectedSessions"
-              :key="session.id"
-              class="session-item session-item--active"
+  <div class="hermes-cli-layout">
+    <div class="hermes-cli-layout__left">
+      <div class="left-panel-scroll">
+        <NCard :title="t('pages.hermesCli.runningSessions')" class="app-card left-panel-card" size="small">
+          <template #header-extra>
+            <NButton
+              type="primary"
+              size="small"
+              class="app-toolbar-btn"
+              @click="handleNewSession"
             >
-              <div class="session-item__info">
-                <NTag type="success" :bordered="false" size="small" round style="margin-right: 8px;">
-                  {{ t('pages.hermesCli.connected') }}
-                </NTag>
-                <!-- Editable name -->
-                <template v-if="editingSessionId === session.id">
-                  <NInput
-                    v-model:value="editingSessionName"
-                    size="tiny"
-                    style="width: 160px; margin-right: 4px;"
-                    @keyup.enter="confirmRenameSession"
-                    @keyup.escape="cancelEditSession"
-                  />
-                  <NButton size="tiny" type="primary" quaternary @click="confirmRenameSession">
-                    {{ t('common.confirm') }}
-                  </NButton>
-                  <NButton size="tiny" quaternary @click="cancelEditSession">
-                    {{ t('common.cancel') }}
-                  </NButton>
-                </template>
-                <template v-else>
-                  <NText strong style="font-size: 13px;">{{ getSessionDisplayName(session) }}</NText>
-                  <NButton
-                    size="tiny"
-                    quaternary
-                    style="margin-left: 4px;"
-                    @click="startEditSession(session)"
-                  >
-                    <template #icon><NIcon :component="CreateOutline" /></template>
-                  </NButton>
-                </template>
-                <NText depth="3" style="font-size: 11px; margin-left: 8px;">
-                  {{ formatTime(session.createdAt) }}
-                </NText>
-              </div>
-              <div class="session-item__actions">
-                <NTooltip trigger="hover">
-                  <template #trigger>
-                    <NButton size="tiny" quaternary @click="handleDetach">
-                      <template #icon><NIcon :component="LogOutOutline" /></template>
-                    </NButton>
-                  </template>
-                  {{ t('pages.hermesCli.detach') }}
-                </NTooltip>
-                <NPopconfirm @positive-click="handleDestroySession(session)">
-                  <template #trigger>
-                    <NButton size="tiny" quaternary type="error">
-                      <template #icon><NIcon :component="TrashOutline" /></template>
-                    </NButton>
-                  </template>
-                  {{ t('common.confirm') }}?
-                </NPopconfirm>
-              </div>
-            </div>
-          </div>
-        </template>
+              <template #icon><NIcon :component="AddOutline" /></template>
+              {{ t('pages.hermesCli.newSession') }}
+            </NButton>
+          </template>
 
-        <!-- Background sessions -->
-        <template v-if="backgroundSessions.length > 0">
-          <NDivider v-if="connectedSessions.length > 0" style="margin: 8px 0;" />
-          <NText depth="3" style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
-            {{ t('pages.hermesCli.backgroundSessions') }} ({{ backgroundSessions.length }})
-          </NText>
-          <div style="margin-top: 6px;">
-            <div
-              v-for="session in backgroundSessions"
-              :key="session.id"
-              class="session-item"
-            >
-              <div class="session-item__info">
-                <NTag type="warning" :bordered="false" size="small" round style="margin-right: 8px;">
-                  {{ t('pages.hermesCli.background') }}
-                </NTag>
-                <template v-if="editingSessionId === session.id">
-                  <NInput
-                    v-model:value="editingSessionName"
-                    size="tiny"
-                    style="width: 160px; margin-right: 4px;"
-                    @keyup.enter="confirmRenameSession"
-                    @keyup.escape="cancelEditSession"
-                  />
-                  <NButton size="tiny" type="primary" quaternary @click="confirmRenameSession">
-                    {{ t('common.confirm') }}
-                  </NButton>
-                  <NButton size="tiny" quaternary @click="cancelEditSession">
-                    {{ t('common.cancel') }}
-                  </NButton>
-                </template>
-                <template v-else>
-                  <NText style="font-size: 13px;">{{ getSessionDisplayName(session) }}</NText>
-                  <NButton
-                    size="tiny"
-                    quaternary
-                    style="margin-left: 4px;"
-                    @click="startEditSession(session)"
-                  >
-                    <template #icon><NIcon :component="CreateOutline" /></template>
-                  </NButton>
-                </template>
-                <NText depth="3" style="font-size: 11px; margin-left: 8px;">
-                  {{ formatTime(session.createdAt) }}
-                </NText>
-              </div>
-              <div class="session-item__actions">
-                <NTooltip trigger="hover">
-                  <template #trigger>
-                    <NButton size="tiny" type="primary" quaternary @click="handleReconnectSession(session)">
-                      <template #icon><NIcon :component="LinkOutline" /></template>
-                    </NButton>
-                  </template>
-                  {{ t('pages.hermesCli.reconnect') }}
-                </NTooltip>
-                <NPopconfirm @positive-click="handleDestroySession(session)">
-                  <template #trigger>
-                    <NButton size="tiny" quaternary type="error">
-                      <template #icon><NIcon :component="TrashOutline" /></template>
-                    </NButton>
-                  </template>
-                  {{ t('common.confirm') }}?
-                </NPopconfirm>
-              </div>
-            </div>
+          <div v-if="hermesCliStore.sessions.length === 0" style="padding: 8px 0;">
+            <NEmpty :description="t('pages.hermesCli.noSessionsHint')" size="small" />
           </div>
-        </template>
-      </template>
-    </NCard>
 
-    <!-- Launch Config Panel -->
-    <NCollapse :expanded-names="launchConfigExpandedNames" class="app-card" @update:expanded-names="onLaunchConfigChange">
-      <NCollapseItem
-        :title="t('pages.hermesCli.launchConfig')"
-        name="launch-config"
-      >
-        <template #header-extra>
-          <NButton
-            type="primary"
-            size="small"
-            class="app-toolbar-btn"
-            @click.stop="handleNewSession"
+          <template v-else>
+            <template v-if="connectedSessions.length > 0">
+              <NText depth="3" style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+                {{ t('pages.hermesCli.connectedSessions') }} ({{ connectedSessions.length }})
+              </NText>
+              <div style="margin-top: 6px;">
+                <NTooltip
+                  v-for="session in connectedSessions"
+                  :key="session.id"
+                  trigger="hover"
+                  placement="right"
+                >
+                  <template #trigger>
+                    <div
+                      class="session-item session-item--active"
+                      :class="{ 'session-item--current': isCurrentSession(session) }"
+                    >
+                      <div class="session-item__info">
+                        <span class="status-indicator status-indicator--connected">
+                          <NIcon :component="EllipseOutline" size="10" />
+                        </span>
+                        <template v-if="editingSessionId === session.id">
+                          <NInput
+                            v-model:value="editingSessionName"
+                            size="tiny"
+                            style="width: 120px; margin-right: 4px;"
+                            @keyup.enter="confirmRenameSession"
+                            @keyup.escape="cancelEditSession"
+                          />
+                          <NButton size="tiny" type="primary" quaternary @click="confirmRenameSession">
+                            {{ t('common.confirm') }}
+                          </NButton>
+                          <NButton size="tiny" quaternary @click="cancelEditSession">
+                            {{ t('common.cancel') }}
+                          </NButton>
+                        </template>
+                        <template v-else>
+                          <NText strong style="font-size: 13px;">{{ getSessionDisplayName(session) }}</NText>
+                          <NButton
+                            size="tiny"
+                            quaternary
+                            style="margin-left: 4px;"
+                            @click.stop="startEditSession(session)"
+                          >
+                            <template #icon><NIcon :component="CreateOutline" /></template>
+                          </NButton>
+                        </template>
+                      </div>
+                      <div class="session-item__actions">
+                        <NTooltip trigger="hover">
+                          <template #trigger>
+                            <NButton size="tiny" quaternary @click.stop="handleDetach">
+                              <template #icon><NIcon :component="LogOutOutline" /></template>
+                            </NButton>
+                          </template>
+                          {{ t('pages.hermesCli.detachHint') || '断开连接，会话继续在后台运行' }}
+                        </NTooltip>
+                        <NPopconfirm @positive-click="handleDestroySession(session)">
+                          <template #trigger>
+                            <NButton size="tiny" quaternary type="error" @click.stop>
+                              <template #icon><NIcon :component="TrashOutline" /></template>
+                            </NButton>
+                          </template>
+                          {{ t('pages.hermesCli.destroyConfirm') || '确定终止此会话？进程将被结束。' }}
+                        </NPopconfirm>
+                      </div>
+                    </div>
+                  </template>
+                  {{ t('pages.hermesCli.connectedStatusHint') || '已连接 - 当前正在与此会话交互' }}
+                </NTooltip>
+              </div>
+            </template>
+
+            <template v-if="backgroundSessions.length > 0">
+              <NDivider v-if="connectedSessions.length > 0" style="margin: 8px 0;" />
+              <NText depth="3" style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">
+                {{ t('pages.hermesCli.backgroundSessions') }} ({{ backgroundSessions.length }})
+              </NText>
+              <div style="margin-top: 6px;">
+                <NTooltip
+                  v-for="session in backgroundSessions"
+                  :key="session.id"
+                  trigger="hover"
+                  placement="right"
+                >
+                  <template #trigger>
+                    <div
+                      class="session-item session-item--background"
+                      @click="handleReconnectSession(session)"
+                    >
+                      <div class="session-item__info">
+                        <span class="status-indicator status-indicator--background">
+                          <NIcon :component="EllipseOutline" size="10" />
+                        </span>
+                        <template v-if="editingSessionId === session.id">
+                          <NInput
+                            v-model:value="editingSessionName"
+                            size="tiny"
+                            style="width: 120px; margin-right: 4px;"
+                            @keyup.enter="confirmRenameSession"
+                            @keyup.escape="cancelEditSession"
+                            @click.stop
+                          />
+                          <NButton size="tiny" type="primary" quaternary @click.stop="confirmRenameSession">
+                            {{ t('common.confirm') }}
+                          </NButton>
+                          <NButton size="tiny" quaternary @click.stop="cancelEditSession">
+                            {{ t('common.cancel') }}
+                          </NButton>
+                        </template>
+                        <template v-else>
+                          <NText style="font-size: 13px;">{{ getSessionDisplayName(session) }}</NText>
+                          <NButton
+                            size="tiny"
+                            quaternary
+                            style="margin-left: 4px;"
+                            @click.stop="startEditSession(session)"
+                          >
+                            <template #icon><NIcon :component="CreateOutline" /></template>
+                          </NButton>
+                        </template>
+                      </div>
+                      <div class="session-item__actions">
+                        <NTooltip trigger="hover">
+                          <template #trigger>
+                            <NButton size="tiny" type="primary" quaternary @click.stop="handleReconnectSession(session)">
+                              <template #icon><NIcon :component="LinkOutline" /></template>
+                            </NButton>
+                          </template>
+                          {{ t('pages.hermesCli.reconnect') }}
+                        </NTooltip>
+                        <NPopconfirm @positive-click="handleDestroySession(session)">
+                          <template #trigger>
+                            <NButton size="tiny" quaternary type="error" @click.stop>
+                              <template #icon><NIcon :component="TrashOutline" /></template>
+                            </NButton>
+                          </template>
+                          {{ t('pages.hermesCli.destroyConfirm') || '确定终止此会话？进程将被结束。' }}
+                        </NPopconfirm>
+                      </div>
+                    </div>
+                  </template>
+                  {{ t('pages.hermesCli.backgroundStatusHint') || '后台运行 - 点击重新连接到此会话' }}
+                </NTooltip>
+              </div>
+            </template>
+          </template>
+        </NCard>
+
+        <NCollapse :expanded-names="launchConfigExpandedNames" class="app-card left-panel-card" @update:expanded-names="onLaunchConfigChange">
+          <NCollapseItem
+            :title="t('pages.hermesCli.launchConfig')"
+            name="launch-config"
           >
-            <template #icon><NIcon :component="PlayOutline" /></template>
-            {{ t('pages.hermesCli.launch') }}
-          </NButton>
-        </template>
+            <template #header-extra>
+              <NButton
+                type="primary"
+                size="small"
+                class="app-toolbar-btn"
+                @click.stop="handleNewSession"
+              >
+                <template #icon><NIcon :component="PlayOutline" /></template>
+                {{ t('pages.hermesCli.launch') }}
+              </NButton>
+            </template>
 
-        <NSpace vertical :size="12">
-          <!-- Model & Provider -->
-          <NSpace :size="12" align="center">
-            <NText style="min-width: 80px; text-align: right;">{{ t('pages.hermesCli.model') }}</NText>
-            <NInput
-              v-model:value="launchConfig.model"
-              :placeholder="'anthropic/claude-sonnet-4'"
-              style="width: 300px;"
-            />
-          </NSpace>
+            <div class="launch-config-form">
+              <div class="launch-config-hint">
+                <NText depth="3" style="font-size: 11px;">
+                  {{ t('pages.hermesCli.defaultConfigHint') || '使用默认配置快速启动，或自定义模型和 Provider' }}
+                </NText>
+              </div>
 
-          <NSpace :size="12" align="center">
-            <NText style="min-width: 80px; text-align: right;">{{ t('pages.hermesCli.provider') }}</NText>
-            <NSelect
-              v-model:value="launchConfig.provider"
-              :options="providerOptions"
-              :placeholder="'auto'"
-              clearable
-              style="width: 300px;"
-            />
-          </NSpace>
+              <div class="launch-config-section">
+                <div class="launch-config-row">
+                  <NText class="launch-config-label">{{ t('pages.hermesCli.model') }}</NText>
+                  <NInput
+                    v-model:value="launchConfig.model"
+                    :placeholder="'claude-sonnet-4'"
+                    class="launch-config-input"
+                  />
+                </div>
 
-          <!-- Skills -->
-          <NSpace :size="12" align="center">
-            <NText style="min-width: 80px; text-align: right;">{{ t('pages.hermesCli.skills') }}</NText>
-            <NDynamicTags v-model:value="launchConfig.skills" style="width: 300px;" />
-          </NSpace>
+                <div class="launch-config-row">
+                  <NText class="launch-config-label">{{ t('pages.hermesCli.provider') }}</NText>
+                  <NSelect
+                    v-model:value="launchConfig.provider"
+                    :options="providerOptions"
+                    :placeholder="'auto'"
+                    clearable
+                    class="launch-config-input"
+                  />
+                </div>
+              </div>
 
-          <!-- Toolsets -->
-          <NSpace :size="12" align="center">
-            <NText style="min-width: 80px; text-align: right;">{{ t('pages.hermesCli.toolsets') }}</NText>
-            <NInput
-              v-model:value="launchConfig.toolsets"
-              :placeholder="'tool1,tool2'"
-              style="width: 300px;"
-            />
-          </NSpace>
+              <NDivider style="margin: 8px 0;">
+                <NButton
+                  text
+                  size="tiny"
+                  type="primary"
+                  @click="showAdvancedOptions = !showAdvancedOptions"
+                >
+                  <template #icon>
+                    <NIcon :component="showAdvancedOptions ? ContractOutline : ExpandOutline" style="margin-right: 4px;" />
+                  </template>
+                  {{ showAdvancedOptions ? (t('pages.hermesCli.hideAdvanced') || '隐藏高级选项') : (t('pages.hermesCli.showAdvanced') || '显示高级选项') }}
+                </NButton>
+              </NDivider>
 
-          <!-- Resume & Continue -->
-          <NSpace :size="12" align="center">
-            <NText style="min-width: 80px; text-align: right;">{{ t('pages.hermesCli.resumeSession') }}</NText>
-            <NInput
-              v-model:value="launchConfig.resumeSession"
-              :placeholder="'session-id'"
-              style="width: 300px;"
-            />
-          </NSpace>
+              <div v-if="showAdvancedOptions" class="launch-config-section launch-config-section--advanced">
+                <div class="launch-config-row">
+                  <NText class="launch-config-label">{{ t('pages.hermesCli.skills') }}</NText>
+                  <NDynamicTags v-model:value="launchConfig.skills" class="launch-config-input" />
+                </div>
 
-          <NSpace :size="12" align="center">
-            <NText style="min-width: 80px; text-align: right;">{{ t('pages.hermesCli.continueSession') }}</NText>
-            <NInput
-              v-model:value="launchConfig.continueSession"
-              :placeholder="'session-name'"
-              style="width: 300px;"
-            />
-          </NSpace>
+                <div class="launch-config-row">
+                  <NText class="launch-config-label">{{ t('pages.hermesCli.toolsets') }}</NText>
+                  <NInput
+                    v-model:value="launchConfig.toolsets"
+                    :placeholder="'tool1,tool2'"
+                    class="launch-config-input"
+                  />
+                </div>
 
-          <!-- Toggles -->
-          <NSpace :size="24" align="center" style="padding-left: 92px;">
-            <NSpace :size="8" align="center">
-              <NSwitch v-model:value="launchConfig.yolo" />
-              <NText>{{ t('pages.hermesCli.yoloMode') }}</NText>
-            </NSpace>
-            <NSpace :size="8" align="center">
-              <NSwitch v-model:value="launchConfig.checkpoints" />
-              <NText>{{ t('pages.hermesCli.checkpoints') }}</NText>
-            </NSpace>
-          </NSpace>
+                <div class="launch-config-row">
+                  <NText class="launch-config-label">{{ t('pages.hermesCli.resumeSession') }}</NText>
+                  <NInput
+                    v-model:value="launchConfig.resumeSession"
+                    :placeholder="'session-id'"
+                    class="launch-config-input"
+                  />
+                </div>
 
-          <NSpace :size="24" align="center" style="padding-left: 92px;">
-            <NSpace :size="8" align="center">
-              <NSwitch v-model:value="launchConfig.verbose" />
-              <NText>{{ t('pages.hermesCli.verbose') }}</NText>
-            </NSpace>
-            <NSpace :size="8" align="center">
-              <NSwitch v-model:value="launchConfig.quiet" />
-              <NText>{{ t('pages.hermesCli.quiet') }}</NText>
-            </NSpace>
-          </NSpace>
+                <div class="launch-config-row">
+                  <NText class="launch-config-label">{{ t('pages.hermesCli.continueSession') }}</NText>
+                  <NInput
+                    v-model:value="launchConfig.continueSession"
+                    :placeholder="'session-name'"
+                    class="launch-config-input"
+                  />
+                </div>
 
-          <!-- Max Turns -->
-          <NSpace :size="12" align="center">
-            <NText style="min-width: 80px; text-align: right;">{{ t('pages.hermesCli.maxTurns') }}</NText>
-            <NInputNumber
-              v-model:value="launchConfig.maxTurns"
-              :min="1"
-              :max="1000"
-              clearable
-              style="width: 300px;"
-            />
-          </NSpace>
+                <div class="launch-config-toggles">
+                  <NSpace :size="8" align="center">
+                    <NSwitch v-model:value="launchConfig.yolo" size="small" />
+                    <NText style="font-size: 12px;">{{ t('pages.hermesCli.yoloMode') }}</NText>
+                  </NSpace>
+                  <NSpace :size="8" align="center">
+                    <NSwitch v-model:value="launchConfig.checkpoints" size="small" />
+                    <NText style="font-size: 12px;">{{ t('pages.hermesCli.checkpoints') }}</NText>
+                  </NSpace>
+                </div>
 
-          <!-- Source -->
-          <NSpace :size="12" align="center">
-            <NText style="min-width: 80px; text-align: right;">{{ t('pages.hermesCli.source') }}</NText>
-            <NInput
-              v-model:value="launchConfig.source"
-              :placeholder="'label'"
-              style="width: 300px;"
-            />
-          </NSpace>
-        </NSpace>
-      </NCollapseItem>
-    </NCollapse>
+                <div class="launch-config-toggles">
+                  <NSpace :size="8" align="center">
+                    <NSwitch v-model:value="launchConfig.verbose" size="small" />
+                    <NText style="font-size: 12px;">{{ t('pages.hermesCli.verbose') }}</NText>
+                  </NSpace>
+                  <NSpace :size="8" align="center">
+                    <NSwitch v-model:value="launchConfig.quiet" size="small" />
+                    <NText style="font-size: 12px;">{{ t('pages.hermesCli.quiet') }}</NText>
+                  </NSpace>
+                </div>
 
-    <!-- Terminal Header Card -->
-    <NCard :title="t('pages.hermesCli.title')" class="app-card">
-      <template #header-extra>
+                <div class="launch-config-row">
+                  <NText class="launch-config-label">{{ t('pages.hermesCli.maxTurns') }}</NText>
+                  <NInputNumber
+                    v-model:value="launchConfig.maxTurns"
+                    :min="1"
+                    :max="1000"
+                    clearable
+                    class="launch-config-input"
+                  />
+                </div>
+
+                <div class="launch-config-row">
+                  <NText class="launch-config-label">{{ t('pages.hermesCli.source') }}</NText>
+                  <NInput
+                    v-model:value="launchConfig.source"
+                    :placeholder="'label'"
+                    class="launch-config-input"
+                  />
+                </div>
+              </div>
+            </div>
+          </NCollapseItem>
+        </NCollapse>
+      </div>
+    </div>
+
+    <div class="hermes-cli-layout__right">
+      <div class="terminal-status-bar">
         <NSpace :size="8" align="center">
+          <NTag :type="connectionTagType" :bordered="false" round size="small">
+            {{ connectionLabel }}
+          </NTag>
+          <NTag v-if="hermesCliStore.currentSession" type="info" :bordered="false" round size="small">
+            {{ hermesCliStore.currentSession.name || (t('pages.hermesCli.session') + ': ' + hermesCliStore.currentSession.id.slice(0, 8) + '...') }}
+          </NTag>
+          <NText v-if="hermesCliStore.currentSession" depth="3" style="font-size: 12px;">
+            {{ hermesCliStore.currentSession.cols }}x{{ hermesCliStore.currentSession.rows }}
+          </NText>
+        </NSpace>
+
+        <NSpace :size="6" align="center">
           <NButton
-            size="small"
-            class="app-toolbar-btn"
+            size="tiny"
+            quaternary
             @click="handleClear"
           >
             <template #icon><NIcon :component="RefreshOutline" /></template>
           </NButton>
           <NButton
-            size="small"
-            class="app-toolbar-btn"
+            size="tiny"
+            quaternary
             @click="handleFullscreen"
           >
             <template #icon>
               <NIcon :component="isFullscreen ? ContractOutline : ExpandOutline" />
             </template>
-            {{ isFullscreen ? t('pages.hermesCli.exitFullscreen') : t('pages.hermesCli.fullscreen') }}
           </NButton>
           <NTooltip v-if="hermesCliStore.isConnected" trigger="hover">
             <template #trigger>
               <NButton
-                size="small"
-                class="app-toolbar-btn"
+                size="tiny"
+                quaternary
                 @click="handleDetach"
               >
                 <template #icon><NIcon :component="LogOutOutline" /></template>
-                {{ t('pages.hermesCli.detach') }}
               </NButton>
             </template>
-            {{ t('pages.hermesCli.detachHint') }}
+            {{ t('pages.hermesCli.detach') }}
           </NTooltip>
           <NPopconfirm v-if="hermesCliStore.isConnected" @positive-click="handleDestroy">
             <template #trigger>
               <NButton
+                size="tiny"
+                quaternary
                 type="error"
-                size="small"
-                class="app-toolbar-btn"
               >
                 <template #icon><NIcon :component="StopOutline" /></template>
-                {{ t('pages.hermesCli.disconnect') }}
               </NButton>
             </template>
             {{ t('common.confirm') }}?
@@ -819,8 +844,7 @@ onUnmounted(() => {
           <NButton
             v-else
             type="primary"
-            size="small"
-            class="app-toolbar-btn"
+            size="tiny"
             @click="handleConnect"
           >
             <template #icon>
@@ -829,61 +853,107 @@ onUnmounted(() => {
             {{ t('pages.hermesCli.reconnect') }}
           </NButton>
         </NSpace>
-      </template>
-
-      <NSpace :size="12" align="center" style="flex-wrap: wrap; margin-bottom: 12px;">
-        <NTag :type="connectionTagType" :bordered="false" round>
-          {{ connectionLabel }}
-        </NTag>
-        <NTag v-if="hermesCliStore.currentSession" type="info" :bordered="false" round>
-          {{ hermesCliStore.currentSession.name || (t('pages.hermesCli.session') + ': ' + hermesCliStore.currentSession.id.slice(0, 8) + '...') }}
-        </NTag>
-        <NText v-if="hermesCliStore.currentSession" depth="3" style="font-size: 12px;">
-          {{ hermesCliStore.currentSession.cols }}x{{ hermesCliStore.currentSession.rows }}
-        </NText>
-      </NSpace>
+      </div>
 
       <NAlert
         v-if="hermesCliStore.error"
         type="error"
         :bordered="false"
-        style="margin-bottom: 12px;"
+        style="margin: 8px 12px 0;"
       >
         {{ hermesCliStore.error }}
       </NAlert>
-    </NCard>
 
-    <!-- Terminal Card -->
-    <NCard
-      class="app-card terminal-container"
-      :class="{ 'terminal-container--fullscreen': isFullscreen }"
-    >
-      <div v-if="isFullscreen && showFullscreenHint" class="fullscreen-hint">
-        {{ t('pages.hermesCli.pressEscToExit') }}
+      <div class="terminal-wrapper">
+        <div v-if="isFullscreen && showFullscreenHint" class="fullscreen-hint">
+          {{ t('pages.hermesCli.pressEscToExit') }}
+        </div>
+        <NSpin :show="terminalLoading">
+          <NAlert
+            v-if="terminalError"
+            type="error"
+            :bordered="false"
+            style="margin-bottom: 12px;"
+          >
+            {{ terminalError }}
+          </NAlert>
+          <div ref="terminalContainerRef" class="terminal-xterm-container" :class="{ 'terminal-xterm-container--fullscreen': isFullscreen }"></div>
+        </NSpin>
       </div>
-      <NSpin :show="terminalLoading">
-        <NAlert
-          v-if="terminalError"
-          type="error"
-          :bordered="false"
-          style="margin-bottom: 12px;"
-        >
-          {{ terminalError }}
-        </NAlert>
-        <div ref="terminalContainerRef" class="terminal-xterm-wrapper"></div>
-      </NSpin>
-    </NCard>
-  </NSpace>
+    </div>
+  </div>
 </template>
 
 <style>
 @import '@xterm/xterm/css/xterm.css';
 
-.terminal-container {
-  position: relative;
+.hermes-cli-layout {
+  display: flex;
+  height: calc(100vh - 120px);
+  min-height: 500px;
+  background: var(--bg-page, #f5f7fa);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-.terminal-container--fullscreen {
+.hermes-cli-layout__left {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card, #fff);
+  border-right: 1px solid var(--border-color, #e0e0e6);
+}
+
+.left-panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.left-panel-card {
+  flex-shrink: 0;
+}
+
+.hermes-cli-layout__right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-card, #fff);
+}
+
+.terminal-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color, #e0e0e6);
+  background: var(--bg-secondary, #f5f7fa);
+  flex-shrink: 0;
+}
+
+.terminal-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 12px;
+}
+
+.terminal-xterm-container {
+  flex: 1;
+  min-height: 0;
+  background: #1e1e1e;
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.terminal-xterm-container--fullscreen {
   position: fixed;
   top: 0;
   left: 0;
@@ -891,11 +961,15 @@ onUnmounted(() => {
   bottom: 0;
   z-index: 9999;
   border-radius: 0;
+  padding: 8px;
 }
 
-.terminal-container--fullscreen :deep(.n-card__content) {
-  padding: 0;
+.terminal-xterm-container .xterm {
   height: 100%;
+}
+
+.terminal-xterm-container .xterm-viewport {
+  border-radius: 4px;
 }
 
 .fullscreen-hint {
@@ -920,47 +994,56 @@ onUnmounted(() => {
   100% { opacity: 0; }
 }
 
-.terminal-xterm-wrapper {
-  height: calc(100vh - 280px);
-  min-height: 300px;
-  background: #1e1e1e;
-  border-radius: 8px;
-  padding: 8px;
-}
-
-.terminal-container--fullscreen .terminal-xterm-wrapper {
-  height: 100vh;
-  border-radius: 0;
-}
-
-.terminal-xterm-wrapper .xterm {
-  height: 100%;
-}
-
-.terminal-xterm-wrapper .xterm-viewport {
-  border-radius: 4px;
-}
-
 .session-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  padding: 6px 8px;
   border-radius: 6px;
   margin-bottom: 4px;
   transition: background-color 0.2s;
+  cursor: default;
 }
 
 .session-item:hover {
-  background-color: rgba(0, 0, 0, 0.04);
+  background-color: var(--bg-hover, rgba(0, 0, 0, 0.04));
 }
 
 .session-item--active {
-  background-color: rgba(82, 196, 26, 0.06);
+  background-color: var(--bg-active, rgba(82, 196, 26, 0.06));
 }
 
 .session-item--active:hover {
-  background-color: rgba(82, 196, 26, 0.1);
+  background-color: var(--bg-active-hover, rgba(82, 196, 26, 0.1));
+}
+
+.session-item--current {
+  border: 1px solid var(--success-color, #52c41a);
+  box-shadow: 0 0 0 1px rgba(82, 196, 26, 0.2);
+}
+
+.session-item--background {
+  cursor: pointer;
+}
+
+.session-item--background:hover {
+  background-color: var(--bg-hover, rgba(0, 0, 0, 0.06));
+}
+
+.status-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.status-indicator--connected {
+  color: #52c41a;
+}
+
+.status-indicator--background {
+  color: #faad14;
 }
 
 .session-item__info {
@@ -968,6 +1051,7 @@ onUnmounted(() => {
   align-items: center;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .session-item__actions {
@@ -977,10 +1061,102 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+.launch-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.launch-config-hint {
+  padding: 6px 8px;
+  background: var(--bg-hover, rgba(0, 0, 0, 0.02));
+  border-radius: 6px;
+  margin-bottom: 4px;
+}
+
+.launch-config-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.launch-config-section--advanced {
+  padding-top: 4px;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.launch-config-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.launch-config-label {
+  min-width: 60px;
+  text-align: right;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.launch-config-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.launch-config-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-left: 68px;
+}
+
 @media (max-width: 768px) {
-  .terminal-xterm-wrapper {
-    height: calc(100vh - 350px);
-    min-height: 250px;
+  .hermes-cli-layout {
+    flex-direction: column;
+    height: auto;
+    min-height: calc(100vh - 120px);
+  }
+
+  .hermes-cli-layout__left {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border-color, #e0e0e6);
+    max-height: 300px;
+  }
+
+  .hermes-cli-layout__right {
+    min-height: 400px;
+  }
+
+  .terminal-xterm-container {
+    min-height: 350px;
+  }
+
+  .launch-config-toggles {
+    flex-direction: column;
+    gap: 8px;
+    padding-left: 0;
+  }
+
+  .launch-config-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .launch-config-label {
+    text-align: left;
   }
 }
 </style>

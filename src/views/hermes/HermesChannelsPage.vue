@@ -2,18 +2,26 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   NAlert,
+  NButton,
   NCard,
   NGrid,
   NGridItem,
   NIcon,
   NInput,
+  NInputGroup,
+  NInputGroupLabel,
+  NModal,
   NSelect,
   NSpace,
   NSpin,
   NSwitch,
   NTag,
   NText,
+  NForm,
+  NFormItem,
+  NDivider,
   useMessage,
+  type FormInst,
 } from 'naive-ui'
 import {
   CloudOutline,
@@ -22,13 +30,19 @@ import {
   AlertCircleOutline,
   RefreshOutline,
   SearchOutline,
+  AddOutline,
+  CreateOutline,
+  TrashOutline,
+  SettingsOutline,
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useHermesChannelStore } from '@/stores/hermes/channel'
+import type { HermesPlatform } from '@/api/hermes/types'
 
 const { t } = useI18n()
 const channelStore = useHermesChannelStore()
 const message = useMessage()
+const formRef = ref<FormInst | null>(null)
 
 // ---- 搜索与筛选 ----
 
@@ -48,7 +62,6 @@ const statusOptions = computed(() => [
 const filteredPlatforms = computed(() => {
   let list = channelStore.platforms
 
-  // 按搜索关键词过滤
   if (searchQuery.value.trim()) {
     const keyword = searchQuery.value.trim().toLowerCase()
     list = list.filter(
@@ -58,7 +71,6 @@ const filteredPlatforms = computed(() => {
     )
   }
 
-  // 按状态筛选
   const filter = statusFilter.value as StatusFilterValue
   if (filter === 'configured') {
     list = list.filter((p) => p.configured)
@@ -83,6 +95,49 @@ const stats = computed(() => {
     enabled: all.filter((p) => p.enabled).length,
     notConfigured: all.filter((p) => !p.configured).length,
   }
+})
+
+// ---- 平台类型选项 ----
+
+const platformTypes = [
+  { label: 'Telegram', value: 'telegram' },
+  { label: 'Discord', value: 'discord' },
+  { label: 'Slack', value: 'slack' },
+  { label: 'WhatsApp', value: 'whatsapp' },
+  { label: 'Signal', value: 'signal' },
+  { label: 'Matrix', value: 'matrix' },
+  { label: '企业微信', value: 'wecom' },
+  { label: '钉钉', value: 'dingtalk' },
+  { label: '飞书', value: 'feishu' },
+  { label: '微信', value: 'wechat' },
+  { label: 'QQ', value: 'qq' },
+]
+
+const chinaPlatformTypes = ['wecom', 'dingtalk', 'feishu', 'wechat', 'qq']
+
+// ---- 模态框状态 ----
+
+const showModal = ref(false)
+const modalMode = ref<'create' | 'edit'>('create')
+const editingPlatform = ref<HermesPlatform | null>(null)
+const formData = ref({
+  id: '',
+  name: '',
+  type: 'telegram',
+  enabled: true,
+  token: '',
+  apiKey: '',
+  apiBase: '',
+  requireMention: true,
+  allowedUsers: '',
+  freeResponseChannels: '',
+  corpId: '',
+  agentId: '',
+  secret: '',
+  appId: '',
+  appSecret: '',
+  clientId: '',
+  clientSecret: '',
 })
 
 // ---- 生命周期 ----
@@ -115,6 +170,162 @@ async function handleToggle(platformId: string, enabled: boolean) {
     message.error(t('pages.hermesChannels.toggleFailed'))
   }
 }
+
+function openCreateModal() {
+  modalMode.value = 'create'
+  editingPlatform.value = null
+  formData.value = {
+    id: '',
+    name: '',
+    type: 'telegram',
+    enabled: true,
+    token: '',
+    apiKey: '',
+    apiBase: '',
+    requireMention: true,
+    allowedUsers: '',
+    freeResponseChannels: '',
+    corpId: '',
+    agentId: '',
+    secret: '',
+    appId: '',
+    appSecret: '',
+    clientId: '',
+    clientSecret: '',
+  }
+  showModal.value = true
+}
+
+function openEditModal(platform: HermesPlatform) {
+  modalMode.value = 'edit'
+  editingPlatform.value = platform
+  const config = platform.config || {}
+  formData.value = {
+    id: platform.id,
+    name: platform.name,
+    type: platform.type,
+    enabled: platform.enabled,
+    token: (config.token as string) || '',
+    apiKey: (config.apiKey as string) || '',
+    apiBase: (config.apiBase as string) || '',
+    requireMention: config.requireMention !== false,
+    allowedUsers: (config.allowedUsers as string) || '',
+    freeResponseChannels: (config.freeResponseChannels as string) || '',
+    corpId: (config.corpId as string) || '',
+    agentId: (config.agentId as string) || '',
+    secret: (config.secret as string) || '',
+    appId: (config.appId as string) || '',
+    appSecret: (config.appSecret as string) || '',
+    clientId: (config.clientId as string) || '',
+    clientSecret: (config.clientSecret as string) || '',
+  }
+  showModal.value = true
+}
+
+function closeModal() {
+  showModal.value = false
+  editingPlatform.value = null
+}
+
+async function handleSave() {
+  try {
+    await formRef.value?.validate()
+  } catch {
+    return
+  }
+
+  const platformId = formData.value.id.trim().toLowerCase()
+  if (!platformId) {
+    message.error(t('pages.hermesChannels.idRequired'))
+    return
+  }
+
+  const config: Record<string, unknown> = {
+    name: formData.value.name || platformId,
+    type: formData.value.type,
+    enabled: formData.value.enabled,
+    requireMention: formData.value.requireMention,
+  }
+
+  if (formData.value.token) {
+    config.token = formData.value.token
+  }
+  if (formData.value.apiKey) {
+    config.apiKey = formData.value.apiKey
+  }
+  if (formData.value.apiBase) {
+    config.apiBase = formData.value.apiBase
+  }
+  if (formData.value.allowedUsers) {
+    config.allowedUsers = formData.value.allowedUsers
+  }
+  if (formData.value.freeResponseChannels) {
+    config.freeResponseChannels = formData.value.freeResponseChannels
+  }
+
+  if (formData.value.corpId) {
+    config.corpId = formData.value.corpId
+  }
+  if (formData.value.agentId) {
+    config.agentId = formData.value.agentId
+  }
+  if (formData.value.secret) {
+    config.secret = formData.value.secret
+  }
+  if (formData.value.appId) {
+    config.appId = formData.value.appId
+  }
+  if (formData.value.appSecret) {
+    config.appSecret = formData.value.appSecret
+  }
+  if (formData.value.clientId) {
+    config.clientId = formData.value.clientId
+  }
+  if (formData.value.clientSecret) {
+    config.clientSecret = formData.value.clientSecret
+  }
+
+  try {
+    if (modalMode.value === 'create') {
+      await channelStore.createPlatform(platformId, config)
+      message.success(t('pages.hermesChannels.createSuccess'))
+    } else {
+      await channelStore.updatePlatform(platformId, config)
+      message.success(t('pages.hermesChannels.updateSuccess'))
+    }
+    closeModal()
+  } catch (error) {
+    message.error(
+      modalMode.value === 'create'
+        ? t('pages.hermesChannels.createFailed')
+        : t('pages.hermesChannels.updateFailed'),
+    )
+  }
+}
+
+async function handleDelete(platformId: string) {
+  try {
+    await channelStore.deletePlatform(platformId)
+    message.success(t('pages.hermesChannels.deleteSuccess'))
+  } catch {
+    message.error(t('pages.hermesChannels.deleteFailed'))
+  }
+}
+
+const rules = {
+  id: {
+    required: true,
+    validator: (_: unknown, value: string) => {
+      if (!value || !value.trim()) {
+        return new Error(t('pages.hermesChannels.idRequired'))
+      }
+      if (!/^[a-z][a-z0-9_-]*$/.test(value.trim().toLowerCase())) {
+        return new Error(t('pages.hermesChannels.idFormat'))
+      }
+      return true
+    },
+  },
+}
 </script>
 
 <template>
@@ -126,9 +337,21 @@ async function handleToggle(platformId: string, enabled: boolean) {
           <NIcon :component="CloudOutline" :size="22" style="color: var(--primary-color);" />
           <span class="hermes-hero-title">{{ t('pages.hermesChannels.title') }}</span>
         </NSpace>
-        <NText depth="3" style="font-size: 13px;">
-          {{ t('pages.hermesChannels.subtitle') }}
-        </NText>
+        <NSpace align="center" :size="12">
+          <NText depth="3" style="font-size: 13px;">
+            {{ t('pages.hermesChannels.subtitle') }}
+          </NText>
+          <NButton
+            type="primary"
+            size="small"
+            @click="openCreateModal"
+          >
+            <template #icon>
+              <NIcon :component="AddOutline" />
+            </template>
+            {{ t('pages.hermesChannels.create') }}
+          </NButton>
+        </NSpace>
       </div>
 
       <NGrid cols="1 s:2 m:4" responsive="screen" :x-gap="10" :y-gap="10" style="margin-top: 16px;">
@@ -260,6 +483,32 @@ async function handleToggle(platformId: string, enabled: boolean) {
                   @update:value="(val: boolean) => handleToggle(platform.id, val)"
                 />
               </NSpace>
+
+              <!-- 操作按钮 -->
+              <NDivider style="margin: 8px 0;" />
+              <NSpace justify="end" :size="8">
+                <NButton
+                  size="small"
+                  quaternary
+                  @click="openEditModal(platform)"
+                >
+                  <template #icon>
+                    <NIcon :component="SettingsOutline" />
+                  </template>
+                  {{ t('pages.hermesChannels.configure') }}
+                </NButton>
+                <NButton
+                  size="small"
+                  quaternary
+                  type="error"
+                  @click="handleDelete(platform.id)"
+                >
+                  <template #icon>
+                    <NIcon :component="TrashOutline" />
+                  </template>
+                  {{ t('common.delete') }}
+                </NButton>
+              </NSpace>
             </NSpace>
           </NCard>
         </NGridItem>
@@ -274,6 +523,190 @@ async function handleToggle(platformId: string, enabled: boolean) {
         {{ t('common.empty') }}
       </NText>
     </NSpin>
+
+    <!-- 编辑/新建模态框 -->
+    <NModal
+      v-model:show="showModal"
+      preset="card"
+      :title="modalMode === 'create' ? t('pages.hermesChannels.create') : t('pages.hermesChannels.configure')"
+      style="width: 500px; max-width: 90vw;"
+      :mask-closable="false"
+    >
+      <NForm
+        ref="formRef"
+        :model="formData"
+        :rules="rules"
+        label-placement="left"
+        label-width="auto"
+      >
+        <NFormItem :label="t('pages.hermesChannels.form.id')" path="id">
+          <NInput
+            v-model:value="formData.id"
+            :placeholder="t('pages.hermesChannels.form.idPlaceholder')"
+            :disabled="modalMode === 'edit'"
+          />
+        </NFormItem>
+        <NFormItem :label="t('pages.hermesChannels.form.name')" path="name">
+          <NInput
+            v-model:value="formData.name"
+            :placeholder="t('pages.hermesChannels.form.namePlaceholder')"
+          />
+        </NFormItem>
+        <NFormItem :label="t('pages.hermesChannels.form.type')" path="type">
+          <NSelect
+            v-model:value="formData.type"
+            :options="platformTypes"
+            :placeholder="t('pages.hermesChannels.form.typePlaceholder')"
+          />
+        </NFormItem>
+
+        <!-- 通用配置 -->
+        <template v-if="!chinaPlatformTypes.includes(formData.type)">
+          <NFormItem :label="t('pages.hermesChannels.form.token')" path="token">
+            <NInput
+              v-model:value="formData.token"
+              type="password"
+              show-password-on="click"
+              :placeholder="t('pages.hermesChannels.form.tokenPlaceholder')"
+            />
+          </NFormItem>
+          <NFormItem :label="t('pages.hermesChannels.form.apiKey')" path="apiKey">
+            <NInput
+              v-model:value="formData.apiKey"
+              type="password"
+              show-password-on="click"
+              :placeholder="t('pages.hermesChannels.form.apiKeyPlaceholder')"
+            />
+          </NFormItem>
+          <NFormItem :label="t('pages.hermesChannels.form.apiBase')" path="apiBase">
+            <NInput
+              v-model:value="formData.apiBase"
+              :placeholder="t('pages.hermesChannels.form.apiBasePlaceholder')"
+            />
+          </NFormItem>
+        </template>
+
+        <!-- 企业微信配置 -->
+        <template v-if="formData.type === 'wecom'">
+          <NFormItem :label="t('pages.hermesChannels.form.corpId')" path="corpId">
+            <NInput
+              v-model:value="formData.corpId"
+              :placeholder="t('pages.hermesChannels.form.corpIdPlaceholder')"
+            />
+          </NFormItem>
+          <NFormItem :label="t('pages.hermesChannels.form.agentId')" path="agentId">
+            <NInput
+              v-model:value="formData.agentId"
+              :placeholder="t('pages.hermesChannels.form.agentIdPlaceholder')"
+            />
+          </NFormItem>
+          <NFormItem :label="t('pages.hermesChannels.form.secret')" path="secret">
+            <NInput
+              v-model:value="formData.secret"
+              type="password"
+              show-password-on="click"
+              :placeholder="t('pages.hermesChannels.form.secretPlaceholder')"
+            />
+          </NFormItem>
+        </template>
+
+        <!-- 钉钉配置 -->
+        <template v-if="formData.type === 'dingtalk'">
+          <NFormItem :label="t('pages.hermesChannels.form.clientId')" path="clientId">
+            <NInput
+              v-model:value="formData.clientId"
+              :placeholder="t('pages.hermesChannels.form.clientIdPlaceholder')"
+            />
+          </NFormItem>
+          <NFormItem :label="t('pages.hermesChannels.form.clientSecret')" path="clientSecret">
+            <NInput
+              v-model:value="formData.clientSecret"
+              type="password"
+              show-password-on="click"
+              :placeholder="t('pages.hermesChannels.form.clientSecretPlaceholder')"
+            />
+          </NFormItem>
+        </template>
+
+        <!-- 飞书配置 -->
+        <template v-if="formData.type === 'feishu'">
+          <NFormItem :label="t('pages.hermesChannels.form.appId')" path="appId">
+            <NInput
+              v-model:value="formData.appId"
+              :placeholder="t('pages.hermesChannels.form.appIdPlaceholder')"
+            />
+          </NFormItem>
+          <NFormItem :label="t('pages.hermesChannels.form.appSecret')" path="appSecret">
+            <NInput
+              v-model:value="formData.appSecret"
+              type="password"
+              show-password-on="click"
+              :placeholder="t('pages.hermesChannels.form.appSecretPlaceholder')"
+            />
+          </NFormItem>
+        </template>
+
+        <!-- 微信配置 -->
+        <template v-if="formData.type === 'wechat'">
+          <NFormItem :label="t('pages.hermesChannels.form.appId')" path="appId">
+            <NInput
+              v-model:value="formData.appId"
+              :placeholder="t('pages.hermesChannels.form.appIdPlaceholder')"
+            />
+          </NFormItem>
+          <NFormItem :label="t('pages.hermesChannels.form.appSecret')" path="appSecret">
+            <NInput
+              v-model:value="formData.appSecret"
+              type="password"
+              show-password-on="click"
+              :placeholder="t('pages.hermesChannels.form.appSecretPlaceholder')"
+            />
+          </NFormItem>
+          <NFormItem :label="t('pages.hermesChannels.form.token')" path="token">
+            <NInput
+              v-model:value="formData.token"
+              :placeholder="t('pages.hermesChannels.form.tokenPlaceholder')"
+            />
+          </NFormItem>
+        </template>
+
+        <!-- QQ配置 -->
+        <template v-if="formData.type === 'qq'">
+          <NFormItem :label="t('pages.hermesChannels.form.appId')" path="appId">
+            <NInput
+              v-model:value="formData.appId"
+              :placeholder="t('pages.hermesChannels.form.appIdPlaceholder')"
+            />
+          </NFormItem>
+          <NFormItem :label="t('pages.hermesChannels.form.secret')" path="secret">
+            <NInput
+              v-model:value="formData.secret"
+              type="password"
+              show-password-on="click"
+              :placeholder="t('pages.hermesChannels.form.secretPlaceholder')"
+            />
+          </NFormItem>
+        </template>
+
+        <NFormItem :label="t('pages.hermesChannels.form.requireMention')" path="requireMention">
+          <NSwitch v-model:value="formData.requireMention" />
+        </NFormItem>
+        <NFormItem :label="t('pages.hermesChannels.form.enabled')" path="enabled">
+          <NSwitch v-model:value="formData.enabled" />
+        </NFormItem>
+      </NForm>
+
+      <template #footer>
+        <NSpace justify="end">
+          <NButton @click="closeModal">
+            {{ t('common.cancel') }}
+          </NButton>
+          <NButton type="primary" @click="handleSave">
+            {{ t('common.save') }}
+          </NButton>
+        </NSpace>
+      </template>
+    </NModal>
   </div>
 </template>
 

@@ -44,6 +44,11 @@ function buildProxyHeaders(req) {
   if (req.headers['content-type']) {
     headers['Content-Type'] = req.headers['content-type']
   }
+  // 转发 X-Hermes-Session-Id (关键：用于会话连续性)
+  if (req.headers['x-hermes-session-id']) {
+    headers['X-Hermes-Session-Id'] = req.headers['x-hermes-session-id']
+    console.log('[Hermes] Forwarding X-Hermes-Session-Id:', req.headers['x-hermes-session-id'])
+  }
   // 如果有 Hermes API Key 且请求中没有 Authorization，则添加
   const apiKey = getHermesApiKey()
   if (apiKey && !headers['Authorization']) {
@@ -140,10 +145,13 @@ function proxySSEStream(req, res, targetBaseUrl, path) {
   const proxyReq = http.request(options, (proxyRes) => {
     // 如果上游返回非 SSE 响应（如错误），正常转发
     if (proxyRes.statusCode !== 200) {
-      res.removeHeader('Content-Type')
-      res.removeHeader('Cache-Control')
-      res.removeHeader('Connection')
-      res.removeHeader('X-Accel-Buffering')
+      // 只有在头部未发送时才移除 SSE 相关头部
+      if (!res.headersSent) {
+        res.removeHeader('Content-Type')
+        res.removeHeader('Cache-Control')
+        res.removeHeader('Connection')
+        res.removeHeader('X-Accel-Buffering')
+      }
       res.status(proxyRes.statusCode)
       for (const [key, value] of Object.entries(proxyRes.headers)) {
         try {
@@ -156,7 +164,29 @@ function proxySSEStream(req, res, targetBaseUrl, path) {
       return
     }
 
-    // SSE 流式透传
+    // SSE 流式透传 - 转发上游响应头（包括 X-Hermes-Session-Id）
+    if (!res.headersSent) {
+      // 转发重要的响应头
+      const headersToForward = ['x-hermes-session-id', 'x-request-id']
+      for (const key of headersToForward) {
+        const value = proxyRes.headers[key]
+        if (value) {
+          res.setHeader(key, value)
+          console.log(`[Hermes] Forwarding response header: ${key}=${value}`)
+        }
+      }
+    }
+
+    // SSE 流式透传（带日志）
+    let logBuffer = ''
+    proxyRes.on('data', (chunk) => {
+      const text = chunk.toString()
+      logBuffer += text
+      // 检测 tool_calls
+      if (text.includes('tool_calls') || text.includes('tool_responses')) {
+        console.log('[Hermes] Tool event detected:', text.substring(0, 500))
+      }
+    })
     proxyRes.pipe(res)
 
     proxyRes.on('end', () => {

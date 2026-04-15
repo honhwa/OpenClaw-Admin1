@@ -130,7 +130,7 @@ function handleBlur() {
     <div class="login-left">
       <div class="login-brand">
         <span class="login-logo">🦞</span>
-        <span class="login-brand-text">OpenClaw Admin</span>
+        <span class="login-brand-text">Claw Admin</span>
       </div>
 
       <div class="login-characters">
@@ -150,7 +150,7 @@ function handleBlur() {
       <div class="login-form-wrapper">
         <div class="login-mobile-brand">
           <span class="login-logo-small">🦞</span>
-          <span>OpenClaw Admin</span>
+          <span>Claw Admin</span>
         </div>
 
         <div v-if="loading && !checking" class="login-loading">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   NAlert,
   NButton,
@@ -17,6 +17,11 @@ import {
   NTabs,
   NTag,
   NText,
+  NRadioGroup,
+  NRadioButton,
+  NTooltip,
+  NUpload,
+  type UploadFileInfo,
   useMessage,
 } from 'naive-ui'
 import {
@@ -30,12 +35,17 @@ import {
   EyeOutline,
   SearchOutline,
   CodeSlashOutline,
-  DocumentTextOutline,
+  DownloadOutline,
+  CloudUploadOutline,
+  SettingsOutline,
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useHermesConnectionStore } from '@/stores/hermes/connection'
 import { useHermesConfigStore } from '@/stores/hermes/config'
-import type { HermesEnvVar } from '@/api/hermes/types'
+import { useConfigEditor } from '@/composables/useConfigEditor'
+import ConfigEditorPanel from '@/components/hermes/ConfigEditorPanel.vue'
+import { DEFAULT_HERMES_CONFIG_SCHEMA } from '@/api/hermes/configSchema'
+import type { HermesEnvVar, HermesConfig } from '@/api/hermes/types'
 
 const { t } = useI18n()
 const connectionStore = useHermesConnectionStore()
@@ -63,7 +73,16 @@ const envSearchQuery = ref('')
 const editingEnvKey = ref<string | null>(null)
 const editingEnvValue = ref('')
 
-// Raw config
+// Config editor
+type ConfigMode = 'visual' | 'yaml'
+const configMode = ref<ConfigMode>('visual')
+const configLoading = ref(false)
+const configSaving = ref(false)
+const configValues = ref<HermesConfig>({})
+const originalConfigValues = ref<HermesConfig>({})
+const yamlConfig = ref('')
+
+// Raw config editor
 const rawConfig = ref('')
 const rawConfigLoading = ref(false)
 const rawConfigSaving = ref(false)
@@ -78,30 +97,42 @@ const filteredEnvVars = computed(() => {
   )
 })
 
+// Computed: config modifications
+const configModifiedFields = computed(() => {
+  const modified = new Set<string>()
+  for (const key of Object.keys(configValues.value)) {
+    const current = configValues.value[key]
+    const original = originalConfigValues.value[key]
+    if (JSON.stringify(current) !== JSON.stringify(original)) {
+      modified.add(key)
+    }
+  }
+  return modified
+})
+
+const hasConfigChanges = computed(() => configModifiedFields.value.size > 0)
+
+const configModifiedCount = computed(() => configModifiedFields.value.size)
+
 // Computed: JSON validation
-const rawConfigValid = computed(() => {
-  if (!rawConfig.value.trim()) return true
+const yamlConfigValid = computed(() => {
+  if (!yamlConfig.value.trim()) return true
   try {
-    JSON.parse(rawConfig.value)
+    JSON.parse(yamlConfig.value)
     return true
   } catch {
     return false
   }
 })
 
-const rawConfigError = computed(() => {
-  if (!rawConfig.value.trim()) return ''
+const yamlConfigError = computed(() => {
+  if (!yamlConfig.value.trim()) return ''
   try {
-    JSON.parse(rawConfig.value)
+    JSON.parse(yamlConfig.value)
     return ''
   } catch (e) {
     return e instanceof Error ? e.message : 'Invalid JSON'
   }
-})
-
-// Computed: formatted raw config with line numbers
-const rawConfigLines = computed(() => {
-  return rawConfig.value.split('\n')
 })
 
 // Computed: connection status info
@@ -139,6 +170,11 @@ onMounted(async () => {
     apiKey: connectionStore.connectionConfig.apiKey,
   }
   await configStore.fetchConfig()
+  if (configStore.config) {
+    configValues.value = { ...configStore.config }
+    originalConfigValues.value = { ...configStore.config }
+    yamlConfig.value = JSON.stringify(configStore.config, null, 2)
+  }
 })
 
 async function handleSaveConnection() {
@@ -172,8 +208,8 @@ async function handleTabChange(tab: string) {
   if (tab === 'env' && envVars.value.length === 0) {
     await loadEnvVars()
   }
-  if (tab === 'rawConfig' && !rawConfig.value) {
-    await loadRawConfig()
+  if (tab === 'config') {
+    await loadConfig()
   }
 }
 
@@ -189,6 +225,100 @@ async function loadEnvVars() {
   } finally {
     envLoading.value = false
   }
+}
+
+async function loadConfig() {
+  configLoading.value = true
+  try {
+    await configStore.fetchConfig()
+    if (configStore.config) {
+      configValues.value = { ...configStore.config }
+      originalConfigValues.value = { ...configStore.config }
+      yamlConfig.value = JSON.stringify(configStore.config, null, 2)
+    }
+  } catch {
+    message.error(t('pages.hermesSystem.rawConfigLoadFailed'))
+  } finally {
+    configLoading.value = false
+  }
+}
+
+async function handleSaveConfig() {
+  if (!hasConfigChanges.value) {
+    message.info(t('pages.config.noChanges'))
+    return
+  }
+  configSaving.value = true
+  try {
+    const changes: Record<string, unknown> = {}
+    configModifiedFields.value.forEach(key => {
+      changes[key] = configValues.value[key]
+    })
+    await configStore.updateConfig(changes)
+    originalConfigValues.value = { ...configValues.value }
+    message.success(t('pages.hermesSystem.rawConfigSaveSuccess'))
+  } catch {
+    message.error(t('pages.hermesSystem.rawConfigSaveFailed'))
+  } finally {
+    configSaving.value = false
+  }
+}
+
+function handleConfigValueChange(key: string, value: unknown) {
+  configValues.value[key] = value
+}
+
+function handleResetConfigField(key: string) {
+  configValues.value[key] = originalConfigValues.value[key]
+}
+
+function handleResetAllConfig() {
+  configValues.value = { ...originalConfigValues.value }
+  yamlConfig.value = JSON.stringify(originalConfigValues.value, null, 2)
+}
+
+function handleYamlConfigChange(value: string) {
+  yamlConfig.value = value
+  try {
+    const parsed = JSON.parse(value)
+    configValues.value = parsed
+  } catch {
+    // Invalid JSON, ignore
+  }
+}
+
+function handleExportConfig() {
+  const dataStr = JSON.stringify(configValues.value, null, 2)
+  const blob = new Blob([dataStr], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'hermes-config.json'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+  message.success(t('common.export') + ' ' + t('common.saveSuccess').toLowerCase())
+}
+
+function handleImportConfig(options: { file: UploadFileInfo }) {
+  const file = options.file.file
+  if (!file) return
+
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    try {
+      const content = e.target?.result as string
+      const parsed = JSON.parse(content)
+      configValues.value = parsed
+      yamlConfig.value = JSON.stringify(parsed, null, 2)
+      message.success(t('pages.hermesSystem.rawConfigSaveSuccess'))
+    } catch {
+      message.error(t('pages.hermesSystem.rawConfigInvalid'))
+    }
+  }
+  reader.readAsText(file)
+  return false
 }
 
 async function handleSetEnvVar() {
@@ -263,48 +393,6 @@ async function handleSaveEditEnv(key: string) {
   }
 }
 
-async function loadRawConfig() {
-  rawConfigLoading.value = true
-  try {
-    const client = connectionStore.getClient()
-    if (client) {
-      rawConfig.value = await client.getRawConfig()
-    }
-  } catch {
-    message.error(t('pages.hermesSystem.rawConfigLoadFailed'))
-  } finally {
-    rawConfigLoading.value = false
-  }
-}
-
-async function handleSaveRawConfig() {
-  if (!rawConfigValid.value) {
-    message.error(t('pages.hermesSystem.rawConfigInvalid'))
-    return
-  }
-  rawConfigSaving.value = true
-  try {
-    const client = connectionStore.getClient()
-    if (client) {
-      await client.updateRawConfig(rawConfig.value)
-      message.success(t('pages.hermesSystem.rawConfigSaveSuccess'))
-    }
-  } catch {
-    message.error(t('pages.hermesSystem.rawConfigSaveFailed'))
-  } finally {
-    rawConfigSaving.value = false
-  }
-}
-
-function handleFormatRawConfig() {
-  try {
-    const parsed = JSON.parse(rawConfig.value)
-    rawConfig.value = JSON.stringify(parsed, null, 2)
-    message.success(t('pages.hermesSystem.rawConfigFormatted'))
-  } catch {
-    message.error(t('pages.hermesSystem.rawConfigInvalid'))
-  }
-}
 </script>
 
 <template>
@@ -643,95 +731,161 @@ function handleFormatRawConfig() {
           </NSpace>
         </NTabPane>
 
-        <!-- Raw Config Tab -->
-        <NTabPane name="rawConfig" :tab="t('pages.hermesSystem.tabs.rawConfig')">
+        <!-- Config Tab (Visual + YAML Editor) -->
+        <NTabPane name="config" :tab="t('pages.hermesSystem.tabs.config')">
           <NSpace vertical :size="12">
-            <NAlert type="warning" :bordered="false">
+            <NAlert type="info" :bordered="false">
               {{ t('pages.hermesSystem.rawConfigHint') }}
             </NAlert>
 
-            <!-- Validation indicator & actions -->
+            <!-- Toolbar: Mode switch + Import/Export -->
             <NSpace justify="space-between" align="center">
               <NSpace :size="12" align="center">
-                <NTag
-                  :type="rawConfigValid ? 'success' : 'error'"
-                  :bordered="false"
-                  round
-                  size="small"
-                >
-                  <template #icon>
-                    <NIcon
-                      :component="rawConfigValid ? CheckmarkCircleOutline : CloseCircleOutline"
-                      :size="14"
-                    />
-                  </template>
-                  {{ rawConfigValid ? t('pages.hermesSystem.rawConfigValid') : t('pages.hermesSystem.rawConfigInvalid') }}
-                </NTag>
-                <NText v-if="!rawConfigValid" depth="3" style="font-size: 12px;">
-                  {{ rawConfigError }}
-                </NText>
+                <NRadioGroup v-model:value="configMode" size="small">
+                  <NRadioButton value="visual">
+                    <NIcon :component="SettingsOutline" :size="14" style="margin-right: 4px;" />
+                    {{ t('pages.hermesSystem.configModeVisual') }}
+                  </NRadioButton>
+                  <NRadioButton value="yaml">
+                    <NIcon :component="CodeSlashOutline" :size="14" style="margin-right: 4px;" />
+                    {{ t('pages.hermesSystem.configModeYaml') }}
+                  </NRadioButton>
+                </NRadioGroup>
+                <span v-if="hasConfigChanges" class="config-modified-indicator">
+                  {{ configModifiedCount }} {{ t('pages.hermesSystem.configPendingSave') }}
+                </span>
               </NSpace>
               <NSpace :size="8">
-                <NButton
-                  size="small"
-                  quaternary
-                  class="app-toolbar-btn"
-                  @click="showLineNumbers = !showLineNumbers"
+                <NUpload
+                  :show-file-list="false"
+                  accept=".json"
+                  :custom-request="handleImportConfig"
                 >
-                  <template #icon><NIcon :component="CodeSlashOutline" :size="14" /></template>
-                  {{ showLineNumbers ? t('pages.hermesSystem.hideLineNumbers') : t('pages.hermesSystem.showLineNumbers') }}
-                </NButton>
-                <NButton
-                  size="small"
-                  class="app-toolbar-btn"
-                  :disabled="!rawConfigValid"
-                  @click="handleFormatRawConfig"
-                >
-                  <template #icon><NIcon :component="DocumentTextOutline" :size="14" /></template>
-                  {{ t('pages.hermesSystem.rawConfigFormat') }}
+                  <NButton size="small" class="app-toolbar-btn">
+                    <template #icon><NIcon :component="CloudUploadOutline" :size="14" /></template>
+                    {{ t('pages.hermesSystem.configImport') }}
+                  </NButton>
+                </NUpload>
+                <NButton size="small" class="app-toolbar-btn" @click="handleExportConfig">
+                  <template #icon><NIcon :component="DownloadOutline" :size="14" /></template>
+                  {{ t('pages.hermesSystem.configExport') }}
                 </NButton>
               </NSpace>
             </NSpace>
 
-            <NSpin :show="rawConfigLoading">
-              <div class="raw-config-editor">
-                <div v-if="showLineNumbers" class="raw-config-line-numbers">
-                  <div
-                    v-for="(_, index) in rawConfigLines"
-                    :key="index"
-                    class="raw-config-line-number"
-                  >
-                    {{ index + 1 }}
-                  </div>
-                </div>
-                <NInput
-                  v-model:value="rawConfig"
-                  type="textarea"
-                  :autosize="{ minRows: 20, maxRows: 50 }"
-                  class="raw-config-textarea"
-                  :class="{ 'raw-config-textarea--with-lines': showLineNumbers }"
-                  style="font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px;"
+            <NSpin :show="configLoading">
+              <!-- Visual Mode -->
+              <template v-if="configMode === 'visual'">
+                <ConfigEditorPanel
+                  v-model="configValues"
+                  :schema="{
+                    categories: DEFAULT_HERMES_CONFIG_SCHEMA.categories.map(cat => ({
+                      id: cat.id,
+                      name: cat.label,
+                      icon: cat.icon,
+                      description: cat.description,
+                    })),
+                    fields: Object.fromEntries(
+                      DEFAULT_HERMES_CONFIG_SCHEMA.categories.map(cat => [
+                        cat.id,
+                        cat.fields.map(field => ({
+                          key: field.key,
+                          label: field.label,
+                          description: field.description,
+                          type: field.type,
+                          defaultValue: field.defaultValue,
+                          placeholder: field.placeholder,
+                          options: field.options?.map(opt => ({
+                            label: opt.label,
+                            value: opt.value as string | number,
+                          })),
+                          validation: field.validation,
+                          unit: field.unit,
+                        })),
+                      ])
+                    ),
+                  }"
+                  :disabled="configSaving"
+                  :saving="configSaving"
+                  @save="handleSaveConfig"
+                  @reset="handleResetAllConfig"
                 />
-              </div>
+              </template>
+
+              <!-- YAML Mode -->
+              <template v-else>
+                <NSpace vertical :size="12">
+                  <NSpace :size="12" align="center">
+                    <NTag
+                      :type="yamlConfigValid ? 'success' : 'error'"
+                      :bordered="false"
+                      round
+                      size="small"
+                    >
+                      <template #icon>
+                        <NIcon
+                          :component="yamlConfigValid ? CheckmarkCircleOutline : CloseCircleOutline"
+                          :size="14"
+                        />
+                      </template>
+                      {{ yamlConfigValid ? t('pages.hermesSystem.rawConfigValid') : t('pages.hermesSystem.rawConfigInvalid') }}
+                    </NTag>
+                    <NText v-if="!yamlConfigValid" depth="3" style="font-size: 12px;">
+                      {{ yamlConfigError }}
+                    </NText>
+                  </NSpace>
+
+                  <div class="raw-config-editor">
+                    <div v-if="showLineNumbers" class="raw-config-line-numbers">
+                      <div
+                        v-for="(_, index) in yamlConfig.split('\n')"
+                        :key="index"
+                        class="raw-config-line-number"
+                      >
+                        {{ index + 1 }}
+                      </div>
+                    </div>
+                    <NInput
+                      :value="yamlConfig"
+                      type="textarea"
+                      :autosize="{ minRows: 20, maxRows: 50 }"
+                      class="raw-config-textarea"
+                      :class="{ 'raw-config-textarea--with-lines': showLineNumbers }"
+                      style="font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px;"
+                      @update:value="handleYamlConfigChange"
+                    />
+                  </div>
+                </NSpace>
+              </template>
             </NSpin>
 
+            <!-- Footer actions -->
             <NSpace :size="8" justify="end">
               <NButton
                 size="small"
                 class="app-toolbar-btn app-toolbar-btn--refresh"
-                :loading="rawConfigLoading"
-                @click="loadRawConfig"
+                :loading="configLoading"
+                @click="loadConfig"
               >
                 <template #icon><NIcon :component="RefreshOutline" /></template>
                 {{ t('common.refresh') }}
               </NButton>
               <NButton
+                size="small"
+                class="app-toolbar-btn"
+                :disabled="!hasConfigChanges"
+                @click="handleResetAllConfig"
+              >
+                <template #icon><NIcon :component="RefreshOutline" /></template>
+                {{ t('common.reset') }}
+              </NButton>
+              <NButton
                 type="primary"
                 size="small"
                 class="app-toolbar-btn"
-                :loading="rawConfigSaving"
-                :disabled="!rawConfigValid"
-                @click="handleSaveRawConfig"
+                :loading="configSaving"
+                :disabled="!hasConfigChanges || (configMode === 'yaml' && !yamlConfigValid)"
+                @click="handleSaveConfig"
               >
                 <template #icon><NIcon :component="SaveOutline" /></template>
                 {{ t('common.save') }}
@@ -739,7 +893,8 @@ function handleFormatRawConfig() {
             </NSpace>
           </NSpace>
         </NTabPane>
-      </NTabs>
+
+        </NTabs>
     </NCard>
   </div>
 </template>
@@ -855,6 +1010,21 @@ function handleFormatRawConfig() {
 .hermes-env-key {
   color: var(--n-text-color, #333);
   user-select: all;
+}
+
+/* ---- Config Editor ---- */
+
+.config-modified-indicator {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  font-weight: 500;
+}
+
+[data-theme='dark'] .config-modified-indicator {
+  background: rgba(245, 158, 11, 0.15);
 }
 
 /* ---- Raw Config Editor ---- */

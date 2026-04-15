@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, reactive, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, reactive, nextTick, onMounted, onUnmounted, watch, h } from 'vue'
 import {
   NCard,
   NGrid,
@@ -68,6 +68,41 @@ interface CommandItem {
   action: (args?: string) => void
 }
 
+interface ToolCallItemView {
+  id?: string
+  name: string
+  argumentsJson?: string
+  command?: string
+  workdir?: string
+  partialJson?: string
+  timeout?: number
+}
+
+interface ThinkingItemView {
+  text: string
+  hasEncryptedSignature: boolean
+}
+
+interface ToolResultItemView {
+  id?: string
+  name?: string
+  status?: string
+  content: string
+}
+
+interface StructuredMessageView {
+  toolCalls: ToolCallItemView[]
+  thinkings: ThinkingItemView[]
+  toolResults: ToolResultItemView[]
+  plainTexts: string[]
+}
+
+interface RenderMessage {
+  key: string
+  item: HermesMessage
+  structured: StructuredMessageView | null
+}
+
 // ---- Constants ----
 
 const QUICK_REPLIES_STORAGE_KEY = 'hermes_chat_quick_replies_v1'
@@ -96,9 +131,6 @@ const selectedCommandIndex = ref(0)
 
 // Sidebar collapse
 const sideCollapsed = ref(false)
-
-// Tool call expand state
-const expandedToolCalls = ref(new Set<string>())
 
 // Copy state
 const copiedMessageId = ref<string | null>(null)
@@ -401,16 +433,79 @@ const filteredMessages = computed(() => {
   return displayMessages.value.filter((m) => m.role === roleFilter.value)
 })
 
+const renderMessageEntries = computed<RenderMessage[]>(() => {
+  const list = filteredMessages.value
+  const rendered: RenderMessage[] = []
+
+  for (let idx = 0; idx < list.length; idx += 1) {
+    const item = list[idx]
+    if (!item) continue
+
+    if (item.role === 'tool') {
+      const parsedContent = parseToolMessage(item.content)
+      const toolName = item.toolName || parsedContent?.toolName || 'Tool'
+      const isError = item.isError || parsedContent?.isError
+      const outputContent = parsedContent?.output || item.content || ''
+      
+      const structured: StructuredMessageView = {
+        toolCalls: [],
+        thinkings: [],
+        toolResults: [{
+          id: item.toolCallId,
+          name: toolName,
+          status: isError ? 'error' : undefined,
+          content: outputContent,
+        }],
+        plainTexts: [],
+      }
+      rendered.push({
+        key: item.id || `tool-${idx}`,
+        item,
+        structured,
+      })
+      continue
+    }
+
+    const structured = parseStructuredMessage(item.content)
+    rendered.push({
+      key: item.id || `${item.role}-${idx}`,
+      item,
+      structured,
+    })
+  }
+
+  return rendered
+})
+
 // Character count
 const inputCharCount = computed(() => inputText.value.length)
 
 // Session options for NSelect
 const sessionOptions = computed(() =>
   sessionStore.sessions.map((s) => ({
-    label: s.title || s.id,
+    label: `[${s.id}] ${s.title || s.id}`,
     value: s.id,
   })),
 )
+
+function renderSessionLabel(option: { label: string; value: string }) {
+  const session = sessionStore.sessions.find((s) => s.id === option.value)
+  const fullText = session ? `[${session.id}] ${session.title || session.id}` : option.label
+  return h(
+    'span',
+    {
+      title: fullText,
+      style: {
+        display: 'block',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        maxWidth: '100%',
+      },
+    },
+    option.label,
+  )
+}
 
 // Selected session metadata
 const selectedSession = computed(() => {
@@ -732,7 +827,8 @@ function handleNewSession() {
 
 async function handleSelectSession(sessionId: string) {
   try {
-    await chatStore.loadSessionMessages(sessionId)
+    const session = sessionStore.sessions.find((s) => s.id === sessionId)
+    await chatStore.loadSessionMessages(sessionId, session?.model)
     lastTokenUsage.value = null
     autoFollowBottom.value = true
     showScrollToBottomBtn.value = false
@@ -759,7 +855,8 @@ async function handleRefreshChatData() {
   try {
     await sessionStore.fetchSessions()
     if (chatStore.currentSessionId) {
-      await chatStore.loadSessionMessages(chatStore.currentSessionId)
+      const session = sessionStore.sessions.find((s) => s.id === chatStore.currentSessionId)
+      await chatStore.loadSessionMessages(chatStore.currentSessionId, session?.model)
       autoFollowBottom.value = true
       nextTick(() => requestScrollToBottom({ force: true }))
     }
@@ -802,6 +899,49 @@ function getRoleLabel(role: HermesMessage['role']): string {
 
 // ---- Tool Call Expand/Collapse ----
 
+const expandedToolCalls = ref(new Set<string>())
+const expandedToolResults = ref(new Set<string>())
+const expandedToolMessages = ref(new Set<string>())
+const showToolDetails = ref(false)
+
+// ---- Hermes Status Text ----
+
+const hermesStatusText = computed(() => {
+  if (chatStore.streaming) {
+    const toolCalls = chatStore.activeToolCalls
+    if (toolCalls.length > 0) {
+      const runningTools = toolCalls.filter(tc => tc.status === 'running')
+      if (runningTools.length > 0) {
+        const names = runningTools.map(tc => `${tc.emoji || '🔧'} ${tc.toolName}`).join(', ')
+        return `${t('pages.hermesChat.toolCall')}: ${names}`
+      }
+    }
+    return t('pages.hermesChat.streaming')
+  }
+  // 显示"本轮完成"当有消息且不在流式传输中
+  if (chatStore.messages.length > 0) {
+    return t('pages.hermesChat.roundComplete')
+  }
+  return ''
+})
+
+const hermesStatusTagType = computed((): 'default' | 'success' | 'error' | 'warning' | 'info' => {
+  if (chatStore.streaming) {
+    if (chatStore.activeToolCalls.some(tc => tc.status === 'error')) {
+      return 'error'
+    }
+    if (chatStore.activeToolCalls.some(tc => tc.status === 'running')) {
+      return 'warning'
+    }
+    return 'info'
+  }
+  // 完成状态显示绿色
+  if (chatStore.messages.length > 0) {
+    return 'success'
+  }
+  return 'default'
+})
+
 function toggleToolCallExpand(key: string) {
   const set = expandedToolCalls.value
   if (set.has(key)) {
@@ -810,6 +950,367 @@ function toggleToolCallExpand(key: string) {
     set.add(key)
   }
   expandedToolCalls.value = new Set(set)
+}
+
+function toggleToolResultExpand(key: string) {
+  const set = expandedToolResults.value
+  if (set.has(key)) {
+    set.delete(key)
+  } else {
+    set.add(key)
+  }
+  expandedToolResults.value = new Set(set)
+}
+
+function toggleToolMessageExpand(key: string) {
+  const set = expandedToolMessages.value
+  if (set.has(key)) {
+    set.delete(key)
+  } else {
+    set.add(key)
+  }
+  expandedToolMessages.value = new Set(set)
+}
+
+// Parse tool message content
+interface ParsedToolMessage {
+  toolName?: string
+  output?: string
+  isError?: boolean
+  metadata?: Record<string, unknown>
+}
+
+function parseToolMessage(content: string): ParsedToolMessage | null {
+  try {
+    const parsed = JSON.parse(content)
+    
+    if (parsed.error || parsed.isError) {
+      return {
+        isError: true,
+        output: parsed.error || parsed.message || parsed.errorMessage || content,
+        toolName: parsed.tool_name || parsed.name || parsed.toolName,
+      }
+    }
+    
+    if (parsed.output !== undefined) {
+      return {
+        toolName: parsed.tool_name || parsed.name || parsed.toolName,
+        output: typeof parsed.output === 'string' ? parsed.output : JSON.stringify(parsed.output, null, 2),
+        metadata: parsed.metadata || parsed.meta,
+      }
+    }
+    
+    if (parsed.result !== undefined) {
+      return {
+        toolName: parsed.tool_name || parsed.name || parsed.toolName,
+        output: typeof parsed.result === 'string' ? parsed.result : JSON.stringify(parsed.result, null, 2),
+      }
+    }
+    
+    if (parsed.content !== undefined) {
+      return {
+        toolName: parsed.tool_name || parsed.name || parsed.toolName,
+        output: typeof parsed.content === 'string' ? parsed.content : JSON.stringify(parsed.content, null, 2),
+      }
+    }
+    
+    if (parsed.files || parsed.total_count !== undefined) {
+      const parts: string[] = []
+      if (parsed.total_count !== undefined) {
+        parts.push(`Total: ${parsed.total_count}${parsed.truncated ? ' (truncated)' : ''}`)
+      }
+      if (parsed.files && Array.isArray(parsed.files)) {
+        parts.push(`Files:\n${parsed.files.slice(0, 20).map((f: string) => `  ${f}`).join('\n')}`)
+        if (parsed.files.length > 20) {
+          parts.push(`  ... and ${parsed.files.length - 20} more`)
+        }
+      }
+      if (parsed.matches && Array.isArray(parsed.matches)) {
+        parts.push(`Matches:\n${parsed.matches.slice(0, 20).map((m: unknown) => `  ${String(m)}`).join('\n')}`)
+        if (parsed.matches.length > 20) {
+          parts.push(`  ... and ${parsed.matches.length - 20} more`)
+        }
+      }
+      return {
+        toolName: parsed.tool_name || parsed.name || parsed.toolName,
+        output: parts.join('\n') || JSON.stringify(parsed, null, 2),
+        metadata: { total_count: parsed.total_count, truncated: parsed.truncated },
+      }
+    }
+    
+    if (parsed.stdout !== undefined || parsed.stderr !== undefined) {
+      const parts: string[] = []
+      if (parsed.stdout) parts.push(parsed.stdout)
+      if (parsed.stderr) parts.push(`[stderr] ${parsed.stderr}`)
+      if (parsed.exit_code !== undefined) parts.push(`[exit code: ${parsed.exit_code}]`)
+      return {
+        toolName: parsed.tool_name || parsed.name || parsed.toolName,
+        output: parts.join('\n') || '(empty)',
+        metadata: { exit_code: parsed.exit_code },
+      }
+    }
+    
+    return {
+      toolName: parsed.tool_name || parsed.name || parsed.toolName,
+      output: JSON.stringify(parsed, null, 2),
+    }
+  } catch {
+    return {
+      output: content,
+    }
+  }
+}
+
+function parseJsonItems(content: string): { items: unknown[]; plainLines: string[] } | null {
+  const lines = content.split('\n').filter((line) => line.trim())
+  const items: unknown[] = []
+  const plainLines: string[] = []
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        items.push(parsed)
+      } catch {
+        plainLines.push(line)
+      }
+    } else {
+      plainLines.push(line)
+    }
+  }
+
+  return { items, plainLines }
+}
+
+function asString(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  return String(value)
+}
+
+function asNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined) return undefined
+  if (typeof value === 'number') return value
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  return null
+}
+
+function unwrapJsonValue(value: unknown): unknown {
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value)
+    } catch {
+      return value
+    }
+  }
+  return value
+}
+
+function parseStructuredMessage(content: string): StructuredMessageView | null {
+  if (!content || !content.trim()) return null
+
+  const parsed = parseJsonItems(content)
+  if (!parsed || parsed.items.length === 0) {
+    return {
+      toolCalls: [],
+      thinkings: [],
+      toolResults: [],
+      plainTexts: parsed?.plainLines || [],
+    }
+  }
+
+  const rawItems = parsed.items
+  const toolCalls: ToolCallItemView[] = []
+  const thinkings: ThinkingItemView[] = []
+  const toolResults: ToolResultItemView[] = []
+  let recognized = 0
+
+  for (const rowValue of rawItems) {
+    const row = asRecord(unwrapJsonValue(rowValue))
+    if (!row) continue
+
+    const typeRaw = asString(row.type).toLowerCase()
+    
+    // 检测 Hermes 风格的工具结果格式: {"output": "..."} 或 {"result": "..."}
+    const hasHermesOutput = 'output' in row || 'result' in row
+    const hasToolCallId = 'tool_call_id' in row || 'toolCallId' in row || 'call_id' in row || 'id' in row
+    
+    const type = typeRaw ||
+      ('thinking' in row || 'thinkingSignature' in row
+        ? 'thinking'
+        : ('arguments' in row && ('name' in row || 'tool' in row)
+          ? 'toolcall'
+          : ((hasToolCallId && ('content' in row || 'output' in row || 'result' in row)) || (hasHermesOutput && !('name' in row) && !('tool' in row))
+            ? 'toolresult'
+            : '')))
+
+    if (type === 'toolcall' || type === 'tool_call') {
+      const args = asRecord(row.arguments ?? row.args ?? row.params)
+      let argumentsJson: string | undefined
+      const rawArgs = row.arguments ?? row.args ?? row.params
+      if (rawArgs) {
+        try {
+          if (typeof rawArgs === 'string') {
+            argumentsJson = rawArgs
+          } else {
+            argumentsJson = JSON.stringify(rawArgs, null, 2)
+          }
+        } catch {
+          argumentsJson = String(rawArgs)
+        }
+      }
+      toolCalls.push({
+        id: asString(row.id || row.tool_call_id || row.toolCallId || row.call_id) || undefined,
+        name: asString(row.name || row.tool || row.toolName || row.tool_name) || 'unknown',
+        command: args ? asString(args.command || args.cmd) || undefined : undefined,
+        workdir: args ? asString(args.workdir || args.cwd || args.dir) || undefined : undefined,
+        timeout: args ? asNumber(args.timeout) : undefined,
+        partialJson: asString(row.partialJson || row.partial_json) || undefined,
+        argumentsJson,
+      })
+      recognized += 1
+      continue
+    }
+
+    if (type === 'thinking' || type === 'reasoning') {
+      const text = asString(row.thinking ?? row.text ?? row.message).trim()
+      if (!text) continue
+      thinkings.push({
+        text,
+        hasEncryptedSignature: false,
+      })
+      recognized += 1
+      continue
+    }
+
+    if (type === 'toolresult' || type === 'tool_result') {
+      let contentText: string
+      const rawContent = row.content ?? row.output ?? row.result ?? row.message ?? row.response
+
+      if (rawContent && typeof rawContent === 'object' && !Array.isArray(rawContent)) {
+        try {
+          contentText = JSON.stringify(rawContent, null, 2)
+        } catch {
+          contentText = asString(rawContent)
+        }
+      } else {
+        contentText = asString(rawContent)
+      }
+
+      if (!contentText.trim()) continue
+      toolResults.push({
+        id: asString(row.id || row.tool_call_id || row.toolCallId || row.call_id) || undefined,
+        name: asString(row.name || row.tool || row.toolName || row.tool_name) || undefined,
+        status: asString(row.status || row.state || row.error) || undefined,
+        content: contentText,
+      })
+      recognized += 1
+      continue
+    }
+  }
+
+  const plainTexts: string[] = []
+  for (const line of parsed.plainLines) {
+    const trimmedLine = line.trim()
+    if (trimmedLine) {
+      plainTexts.push(line)
+    }
+  }
+
+  if (!recognized && plainTexts.length === 0) return null
+  return {
+    toolCalls,
+    thinkings,
+    toolResults,
+    plainTexts,
+  }
+}
+
+// Format tool output for display
+function formatToolOutput(content: string): string {
+  const parsed = parseToolMessage(content)
+  if (parsed?.output) {
+    return parsed.output
+  }
+  return content
+}
+
+// Get tool name from message
+function getToolNameFromMessage(content: string): string {
+  const parsed = parseToolMessage(content)
+  return parsed?.toolName || 'Tool'
+}
+
+// Check if tool message has metadata
+function getToolMetadata(content: string): Record<string, unknown> | undefined {
+  const parsed = parseToolMessage(content)
+  return parsed?.metadata
+}
+
+// Separate tool calls and tool results
+const toolCallsOnly = computed(() => {
+  return chatStore.activeToolCalls.filter((tc) => tc.phase !== 'result')
+})
+
+const toolResultsOnly = computed(() => {
+  return chatStore.activeToolCalls.filter((tc) => tc.phase === 'result' && tc.resultPreview)
+})
+
+// Format tool duration
+function formatToolDuration(duration?: number): string {
+  if (!duration) return ''
+  if (duration < 1000) return `${duration}ms`
+  const seconds = (duration / 1000).toFixed(1)
+  return `${seconds}s`
+}
+
+// Get status icon for tool
+function getToolStatusIcon(status?: string): string {
+  switch (status) {
+    case 'running':
+      return '⏳'
+    case 'completed':
+      return '✓'
+    case 'error':
+      return '✗'
+    default:
+      return ''
+  }
+}
+
+// Get status color for tool
+function getToolStatusColor(status?: string): 'default' | 'success' | 'error' | 'warning' | 'info' {
+  switch (status) {
+    case 'running':
+      return 'warning'
+    case 'completed':
+      return 'success'
+    case 'error':
+      return 'error'
+    default:
+      return 'default'
+  }
+}
+
+// ---- Copy to Clipboard ----
+
+function copyToClipboard(text: string) {
+  navigator.clipboard.writeText(text).then(() => {
+    message.success(t('common.copied'))
+  }).catch(() => {
+    message.error(t('common.copyFailed'))
+  })
 }
 
 // ---- Copy Message ----
@@ -832,24 +1333,58 @@ async function copyMessageContent(msg: HermesMessage) {
 
 // ---- Time Formatting ----
 
-function formatMessageTime(timestamp?: string): string {
+function formatMessageTime(timestamp?: string | number): string {
   if (!timestamp) return ''
   try {
-    const date = new Date(timestamp)
+    let date: Date
+    if (typeof timestamp === 'number') {
+      const ts = timestamp < 1e12 ? timestamp * 1000 : timestamp
+      date = new Date(ts)
+    } else if (typeof timestamp === 'string') {
+      const num = parseFloat(timestamp)
+      if (!isNaN(num) && num > 0) {
+        const ts = num < 1e12 ? num * 1000 : num
+        date = new Date(ts)
+      } else {
+        date = new Date(timestamp)
+      }
+    } else {
+      return ''
+    }
     return date.toLocaleTimeString(locale.value, {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
+      timeZone: 'Asia/Shanghai',
     })
   } catch {
     return ''
   }
 }
 
-function formatRelativeTime(timestamp?: string): string {
+function formatRelativeTime(timestamp?: string | number): string {
   if (!timestamp) return '-'
   try {
-    const date = new Date(timestamp)
+    let date: Date
+    if (typeof timestamp === 'number') {
+      // Unix timestamp in seconds (e.g., 1776268987.7534964)
+      // Check if it's in seconds (value < 1e12) or milliseconds (value >= 1e12)
+      const ts = timestamp < 1e12 ? timestamp * 1000 : timestamp
+      date = new Date(ts)
+    } else if (typeof timestamp === 'string') {
+      // Check if it's a numeric string (Unix timestamp)
+      const num = parseFloat(timestamp)
+      if (!isNaN(num) && num > 0) {
+        const ts = num < 1e12 ? num * 1000 : num
+        date = new Date(ts)
+      } else {
+        date = new Date(timestamp)
+      }
+    } else {
+      return '-'
+    }
+    if (isNaN(date.getTime())) return '-'
+    
     const now = new Date()
     const diffMs = now.getTime() - date.getTime()
     const diffSec = Math.floor(diffMs / 1000)
@@ -861,22 +1396,42 @@ function formatRelativeTime(timestamp?: string): string {
     if (diffMin < 60) return `${diffMin}m`
     if (diffHour < 24) return `${diffHour}h`
     if (diffDay < 30) return `${diffDay}d`
-    return date.toLocaleDateString(locale.value, { month: 'short', day: 'numeric' })
+    return date.toLocaleDateString(locale.value, { month: 'short', day: 'numeric', timeZone: 'Asia/Shanghai' })
   } catch {
     return '-'
   }
 }
 
-function formatSessionDate(timestamp?: string): string {
+function formatSessionDate(timestamp?: string | number): string {
   if (!timestamp) return '-'
   try {
-    const date = new Date(timestamp)
+    let date: Date
+    if (typeof timestamp === 'number') {
+      const ts = timestamp < 1e12 ? timestamp * 1000 : timestamp
+      date = new Date(ts)
+    } else if (typeof timestamp === 'string') {
+      if (timestamp.includes('-') || timestamp.includes('T') || timestamp.includes(':')) {
+        date = new Date(timestamp)
+      } else {
+        const num = parseFloat(timestamp)
+        if (!isNaN(num) && num > 0) {
+          const ts = num < 1e12 ? num * 1000 : num
+          date = new Date(ts)
+        } else {
+          date = new Date(timestamp)
+        }
+      }
+    } else {
+      return '-'
+    }
+    if (isNaN(date.getTime())) return '-'
     return date.toLocaleDateString(locale.value, {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
       minute: '2-digit',
+      timeZone: 'Asia/Shanghai',
     })
   } catch {
     return '-'
@@ -1051,6 +1606,7 @@ function handleSaveQuickReply() {
                 <NSelect
                   :value="chatStore.currentSessionId"
                   :options="sessionOptions"
+                  :render-label="renderSessionLabel"
                   filterable
                   :placeholder="t('pages.hermesChat.sessionSelectorPlaceholder')"
                   style="min-width: 240px; margin-top: 6px;"
@@ -1180,7 +1736,7 @@ function handleSaveQuickReply() {
                   </NTag>
                 </NSpace>
                 <NText depth="3" style="font-size: 12px;">
-                  {{ stats.user }} / {{ stats.assistant }} / {{ stats.system }}
+                  {{ t('pages.hermesChat.roleUser') }}: {{ stats.user }} / {{ t('pages.hermesChat.roleAssistant') }}: {{ stats.assistant }} / {{ t('pages.hermesChat.roleSystem') }}: {{ stats.system }}
                 </NText>
               </NSpace>
 
@@ -1208,44 +1764,170 @@ function handleSaveQuickReply() {
                     <!-- Message list -->
                     <div v-else class="hermes-chat-message-list">
                       <div
-                        v-for="(msg, msgIdx) in filteredMessages"
-                        :key="msg.id || msgIdx"
+                        v-for="entry in renderMessageEntries"
+                        :key="entry.key"
                         class="chat-bubble"
-                        :class="`is-${msg.role}`"
+                        :class="`is-${entry.item.role}`"
                       >
-                        <!-- Bubble meta -->
                         <NSpace justify="space-between" align="center" class="chat-bubble-meta" :size="8">
                           <NSpace align="center" :size="6">
-                            <NTag :type="getRoleTagType(msg.role)" size="small" :bordered="false" round>
-                              {{ getRoleLabel(msg.role) }}
+                            <NTag :type="getRoleTagType(entry.item.role)" size="small" :bordered="false" round>
+                              {{ getRoleLabel(entry.item.role) }}
                             </NTag>
+                            <NText v-if="entry.item.model" depth="3" style="font-size: 12px;">
+                              {{ entry.item.model }}
+                            </NText>
+                            <NText v-else-if="entry.item.role === 'tool' && entry.item.toolName" depth="3" style="font-size: 12px;">
+                              {{ entry.item.toolName }}
+                            </NText>
                           </NSpace>
-                          <NText v-if="msg.timestamp" depth="3" style="font-size: 12px;">
-                            {{ formatMessageTime(msg.timestamp) }}
+                          <NText v-if="entry.item.timestamp" depth="3" style="font-size: 12px;">
+                            {{ formatSessionDate(entry.item.timestamp) }}
                           </NText>
                         </NSpace>
 
-                        <!-- Message content -->
-                        <div class="chat-bubble-content-wrapper">
+                        <div v-if="entry.structured" class="structured-message-list">
+                          <div v-if="entry.structured.toolCalls.length" class="tool-call-list">
+                            <div
+                              v-for="(tool, toolIndex) in entry.structured.toolCalls"
+                              :key="`${entry.key}-tool-${toolIndex}`"
+                              class="tool-call-card"
+                            >
+                              <NSpace align="center" justify="space-between">
+                                <NSpace align="center" :size="6">
+                                  <NTag size="small" type="warning" :bordered="false" round>{{ t('pages.hermesChat.toolCall') }}</NTag>
+                                  <NText strong>{{ tool.name }}</NText>
+                                </NSpace>
+                                <NSpace align="center" :size="8">
+                                  <NText v-if="tool.timeout" depth="3" style="font-size: 12px;">
+                                    {{ t('pages.hermesChat.toolTimeout', { seconds: tool.timeout }) }}
+                                  </NText>
+                                  <NButton
+                                    v-if="tool.argumentsJson"
+                                    size="tiny"
+                                    text
+                                    @click="toggleToolCallExpand(`${entry.key}-tool-${toolIndex}`)"
+                                  >
+                                    {{ expandedToolCalls.has(`${entry.key}-tool-${toolIndex}`) ? t('pages.hermesChat.hideArgs') : t('pages.hermesChat.viewArgs') }}
+                                  </NButton>
+                                </NSpace>
+                              </NSpace>
+
+                              <div v-if="tool.command || tool.workdir" class="tool-call-meta">
+                                <code v-if="tool.command" class="tool-call-meta__code">{{ tool.command }}</code>
+                                <code v-if="tool.workdir" class="tool-call-meta__code">{{ tool.workdir }}</code>
+                              </div>
+
+                              <div v-if="tool.argumentsJson && expandedToolCalls.has(`${entry.key}-tool-${toolIndex}`)" class="tool-call-args">
+                                <pre class="tool-call-args__content">{{ tool.argumentsJson }}</pre>
+                              </div>
+
+                              <details v-if="tool.partialJson" class="tool-call-details">
+                                <summary>{{ t('pages.hermesChat.viewPartialJson') }}</summary>
+                                <pre>{{ tool.partialJson }}</pre>
+                              </details>
+                            </div>
+                          </div>
+
+                          <div v-if="entry.structured.toolResults.length" class="tool-result-list">
+                            <div
+                              v-for="(result, resultIndex) in entry.structured.toolResults"
+                              :key="`${entry.key}-tool-result-${resultIndex}`"
+                              class="tool-result-card"
+                            >
+                              <NSpace align="center" justify="space-between">
+                                <NSpace align="center" :size="6">
+                                  <NTag size="small" type="success" :bordered="false" round>{{ t('pages.hermesChat.toolCallResult') }}</NTag>
+                                  <NText strong>{{ result.name || 'unknown' }}</NText>
+                                </NSpace>
+                                <NSpace align="center" :size="8">
+                                  <NText v-if="result.status" depth="3" style="font-size: 12px;">
+                                    {{ result.status }}
+                                  </NText>
+                                  <NButton
+                                    size="tiny"
+                                    text
+                                    @click="toggleToolResultExpand(`${entry.key}-result-${resultIndex}`)"
+                                  >
+                                    {{ expandedToolResults.has(`${entry.key}-result-${resultIndex}`) ? t('pages.hermesChat.hideArgs') : t('pages.hermesChat.viewArgs') }}
+                                  </NButton>
+                                </NSpace>
+                              </NSpace>
+
+                              <div v-if="expandedToolResults.has(`${entry.key}-result-${resultIndex}`)" class="tool-call-grid">
+                                <span class="tool-call-label">{{ t('pages.hermesChat.toolCallId') }}</span>
+                                <div class="tool-call-value-wrapper">
+                                  <code>{{ result.id || '-' }}</code>
+                                  <NTooltip>
+                                    <template #trigger>
+                                      <NButton quaternary size="tiny" class="tool-value-copy-btn" @click="copyToClipboard(result.id || '-')">
+                                        <template #icon>
+                                          <NIcon :component="CopyOutline" />
+                                        </template>
+                                      </NButton>
+                                    </template>
+                                    {{ t('common.copy') }}
+                                  </NTooltip>
+                                </div>
+                                <span class="tool-call-label">{{ t('pages.hermesChat.toolCallContent') }}</span>
+                                <div class="tool-call-value-wrapper tool-result-content-wrapper">
+                                  <pre class="tool-result-content">{{ result.content }}</pre>
+                                  <NTooltip>
+                                    <template #trigger>
+                                      <NButton quaternary size="tiny" class="tool-value-copy-btn" @click="copyToClipboard(result.content)">
+                                        <template #icon>
+                                          <NIcon :component="CopyOutline" />
+                                        </template>
+                                      </NButton>
+                                    </template>
+                                    {{ t('common.copy') }}
+                                  </NTooltip>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
                           <div
-                            v-if="msg.role === 'assistant'"
+                            v-if="entry.structured.plainTexts.length"
+                            class="chat-bubble-content-wrapper"
+                          >
+                            <div class="chat-bubble-content structured-plain-text chat-markdown"
+                              v-html="renderChatMarkdown(entry.structured.plainTexts.join('\n'), entry.item.role)"
+                            ></div>
+                            <div class="chat-content-copy-btn">
+                              <NTooltip>
+                                <template #trigger>
+                                  <NButton quaternary size="tiny" @click="copyMessageContent(entry.item)">
+                                    <template #icon>
+                                      <NIcon :component="CopyOutline" />
+                                    </template>
+                                  </NButton>
+                                </template>
+                                {{ t('common.copy') }}
+                              </NTooltip>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div v-else class="chat-bubble-content-wrapper">
+                          <div
+                            v-if="entry.item.role === 'assistant'"
                             class="chat-bubble-content chat-markdown"
-                            v-html="renderChatMarkdown(msg.content, msg.role)"
+                            v-html="renderChatMarkdown(entry.item.content, entry.item.role)"
                           ></div>
                           <div
                             v-else
                             class="chat-bubble-content"
-                            v-html="renderChatMarkdown(msg.content, msg.role)"
+                            v-html="renderChatMarkdown(entry.item.content, entry.item.role)"
                           ></div>
-                          <!-- Copy button on hover -->
                           <div class="chat-content-copy-btn">
                             <NTooltip>
                               <template #trigger>
                                 <NButton
                                   quaternary
                                   size="tiny"
-                                  :type="copiedMessageId === (msg.id || msgIdx) ? 'success' : 'default'"
-                                  @click="copyMessageContent(msg)"
+                                  :type="copiedMessageId === entry.item.id ? 'success' : 'default'"
+                                  @click="copyMessageContent(entry.item)"
                                 >
                                   <template #icon>
                                     <NIcon :component="CopyOutline" />
@@ -1260,45 +1942,6 @@ function handleSaveQuickReply() {
                     </div>
                   </div>
                 </NSpin>
-              </div>
-
-              <!-- Tool Calls (collapsible panels) -->
-              <div v-if="chatStore.activeToolCalls.length > 0" class="hermes-chat-tool-calls">
-                <div
-                  v-for="(tc, tcIdx) in chatStore.activeToolCalls"
-                  :key="tc.toolCallId || tcIdx"
-                  class="tool-call-card"
-                >
-                  <NSpace align="center" justify="space-between">
-                    <NSpace align="center" :size="6">
-                      <NTag size="small" type="warning" :bordered="false" round>
-                        {{ t('pages.hermesChat.toolCall') }}
-                      </NTag>
-                      <NText strong style="font-size: 13px;">{{ tc.toolName }}</NText>
-                    </NSpace>
-                    <NButton
-                      v-if="tc.argsPreview"
-                      size="tiny"
-                      text
-                      @click="toggleToolCallExpand(tc.toolCallId || `tc-${tcIdx}`)"
-                    >
-                      {{ expandedToolCalls.has(tc.toolCallId || `tc-${tcIdx}`) ? t('pages.hermesChat.hideArgs') : t('pages.hermesChat.viewArgs') }}
-                    </NButton>
-                  </NSpace>
-                  <div
-                    v-if="tc.argsPreview && expandedToolCalls.has(tc.toolCallId || `tc-${tcIdx}`)"
-                    class="tool-call-args"
-                  >
-                    <pre class="tool-call-args__content">{{ tc.argsPreview }}</pre>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Streaming indicator -->
-              <div v-if="chatStore.streaming" class="hermes-chat-streaming">
-                <NText depth="3" style="font-size: 12px;">
-                  <NSpin size="small" /> {{ t('pages.hermesChat.streaming') }}
-                </NText>
               </div>
             </NCard>
 
@@ -1339,6 +1982,57 @@ function handleSaveQuickReply() {
                   @update:value="handleInputUpdate"
                   @keydown="handleKeydown"
                 />
+
+                <!-- Tool Progress Status Line -->
+                <div v-if="chatStore.streaming || chatStore.messages.length > 0" class="chat-compose-status-line">
+                  <NSpace align="center" justify="space-between" style="width: 100%;">
+                    <NTag
+                      size="small"
+                      :type="hermesStatusTagType"
+                      :bordered="false"
+                      round
+                      class="chat-agent-status-tag"
+                    >
+                      {{ hermesStatusText }}
+                    </NTag>
+                    <NButton
+                      v-if="chatStore.activeToolCalls.length > 0"
+                      size="tiny"
+                      text
+                      @click="showToolDetails = !showToolDetails"
+                    >
+                      {{ showToolDetails ? t('pages.hermesChat.hideArgs') : t('pages.hermesChat.viewArgs') }}
+                    </NButton>
+                  </NSpace>
+                </div>
+
+                <!-- Tool Progress Details Panel -->
+                <div v-if="showToolDetails && chatStore.activeToolCalls.length > 0" class="chat-tool-progress">
+                  <div v-for="(tc, tcIdx) in chatStore.activeToolCalls" :key="tc.toolCallId || tcIdx" class="chat-tool-progress__item">
+                    <div class="chat-tool-progress__title">
+                      <span>{{ tc.emoji || '🔧' }} {{ tc.toolName }}</span>
+                      <span v-if="tc.duration" class="chat-tool-progress__meta">{{ formatToolDuration(tc.duration) }}</span>
+                    </div>
+                    <div class="chat-tool-progress__kv">
+                      <span class="chat-tool-progress__k">{{ t('pages.hermesChat.toolCallId') }}</span>
+                      <code class="chat-tool-progress__v">{{ tc.toolCallId || '-' }}</code>
+                      <span class="chat-tool-progress__k">{{ t('pages.hermesChat.toolCallPhase') }}</span>
+                      <code class="chat-tool-progress__v">{{ tc.phase }}</code>
+                      <span class="chat-tool-progress__k">{{ t('pages.hermesChat.toolCallStatus') }}</span>
+                      <code class="chat-tool-progress__v">{{ tc.status }}</code>
+                    </div>
+
+                    <details v-if="tc.argsPreview" class="chat-tool-progress__details">
+                      <summary>{{ t('pages.hermesChat.viewArgs') }}</summary>
+                      <pre>{{ tc.argsPreview }}</pre>
+                    </details>
+
+                    <details v-if="tc.resultPreview" class="chat-tool-progress__details">
+                      <summary>{{ t('pages.hermesChat.toolCallContent') }}</summary>
+                      <pre>{{ tc.resultPreview }}</pre>
+                    </details>
+                  </div>
+                </div>
 
                 <NSpace justify="space-between" align="center">
                   <NText v-if="inputCharCount > 0" depth="3" style="font-size: 11px;">
@@ -1812,19 +2506,101 @@ function handleSaveQuickReply() {
   margin-top: 8px;
 }
 
+.structured-message-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.structured-plain-text {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px dashed var(--border-color);
+  background: var(--bg-primary);
+}
+
+.tool-call-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .tool-call-card {
   border: 1px solid rgba(250, 173, 20, 0.35);
   border-radius: 8px;
   background: rgba(250, 173, 20, 0.08);
   padding: 10px;
-  transition: border-color 0.15s ease;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
 .tool-call-card:hover {
   border-color: rgba(250, 173, 20, 0.55);
 }
 
+.tool-call-card--running {
+  border-color: rgba(250, 173, 20, 0.5);
+  background: rgba(250, 173, 20, 0.12);
+  animation: tool-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes tool-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.tool-call-card--completed {
+  border-color: rgba(24, 160, 88, 0.35);
+  background: rgba(24, 160, 88, 0.08);
+}
+
+.tool-call-card--completed:hover {
+  border-color: rgba(24, 160, 88, 0.55);
+}
+
+.tool-call-card--error {
+  border-color: rgba(208, 48, 80, 0.35);
+  background: rgba(208, 48, 80, 0.08);
+}
+
+.tool-call-card--error:hover {
+  border-color: rgba(208, 48, 80, 0.55);
+}
+
+.tool-call-details {
+  margin-top: 8px;
+}
+
+.tool-call-details summary {
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.tool-call-details pre {
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
+
 .tool-call-args {
+  margin-top: 10px;
+}
+
+.tool-call-args:first-child {
+  margin-top: 0;
+}
+
+.tool-call-result {
   margin-top: 10px;
 }
 
@@ -1840,6 +2616,263 @@ function handleSaveQuickReply() {
   word-break: break-word;
   max-height: 300px;
   overflow: auto;
+}
+
+.tool-call-meta {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tool-call-meta__code {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-primary);
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.tool-result-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tool-result-card {
+  border: 1px solid rgba(24, 160, 88, 0.35);
+  border-radius: 8px;
+  background: rgba(24, 160, 88, 0.08);
+  padding: 10px;
+  transition: border-color 0.15s ease;
+}
+
+.tool-result-card:hover {
+  border-color: rgba(24, 160, 88, 0.55);
+}
+
+.tool-result-card--error {
+  border-color: rgba(208, 48, 80, 0.35);
+  background: rgba(208, 48, 80, 0.08);
+}
+
+.tool-result-card--error:hover {
+  border-color: rgba(208, 48, 80, 0.55);
+}
+
+.tool-message-card {
+  border: 1px solid rgba(32, 128, 240, 0.35);
+  border-radius: 8px;
+  background: rgba(32, 128, 240, 0.08);
+  padding: 10px;
+  width: 100%;
+  transition: border-color 0.15s ease;
+}
+
+.tool-message-card:hover {
+  border-color: rgba(32, 128, 240, 0.55);
+}
+
+.tool-message-card--error {
+  border-color: rgba(208, 48, 80, 0.35);
+  background: rgba(208, 48, 80, 0.08);
+}
+
+.tool-message-card--error:hover {
+  border-color: rgba(208, 48, 80, 0.55);
+}
+
+.tool-message-content {
+  margin-top: 10px;
+  position: relative;
+}
+
+.tool-message-content pre {
+  margin: 0;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow: auto;
+}
+
+.tool-message-content .tool-value-copy-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.tool-message-content:hover .tool-value-copy-btn {
+  opacity: 1;
+}
+
+.tool-result-content {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.55;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  font-size: 12px;
+  max-height: 300px;
+  overflow: auto;
+}
+
+.tool-call-grid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 6px 8px;
+  align-items: start;
+}
+
+.tool-call-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.tool-call-value-wrapper {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.tool-call-value-wrapper code {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-primary);
+  word-break: break-all;
+}
+
+.tool-result-content-wrapper {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.tool-result-content-wrapper .tool-result-content {
+  margin: 0;
+}
+
+.tool-result-content-wrapper .tool-value-copy-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+.tool-value-copy-btn {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  flex-shrink: 0;
+}
+
+.tool-call-value-wrapper:hover .tool-value-copy-btn {
+  opacity: 1;
+}
+
+/* Tool Progress Panel */
+.chat-compose-status-line {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.chat-agent-status-tag.n-tag {
+  max-width: 360px;
+}
+
+.chat-agent-status-tag :deep(.n-tag__content) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-tool-progress {
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+}
+
+.chat-tool-progress__item {
+  margin-bottom: 8px;
+}
+
+.chat-tool-progress__item:last-child {
+  margin-bottom: 0;
+}
+
+.chat-tool-progress__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chat-tool-progress__meta {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.chat-tool-progress__kv {
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 6px 10px;
+  align-items: start;
+}
+
+.chat-tool-progress__k {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.chat-tool-progress__v {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  word-break: break-all;
+}
+
+.chat-tool-progress__details {
+  margin-top: 8px;
+}
+
+.chat-tool-progress__details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.chat-tool-progress__details pre {
+  margin-top: 6px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: auto;
+  max-height: 240px;
 }
 
 /* Streaming indicator */

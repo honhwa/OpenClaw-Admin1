@@ -2,6 +2,7 @@
 import { computed, h, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
+  NAlert,
   NButton,
   NCard,
   NDataTable,
@@ -25,6 +26,8 @@ import {
   SparklesOutline,
   ListOutline,
   AddOutline,
+  WalletOutline,
+  TrendingUpOutline,
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useHermesConnectionStore } from '@/stores/hermes/connection'
@@ -32,7 +35,9 @@ import { useHermesSessionStore } from '@/stores/hermes/session'
 import { useHermesModelStore } from '@/stores/hermes/model'
 import { useHermesSkillStore } from '@/stores/hermes/skill'
 import { formatRelativeTime } from '@/utils/format'
-import type { HermesSession } from '@/api/hermes/types'
+import type { HermesSession, HermesUsageAnalytics } from '@/api/hermes/types'
+
+type UsageMode = 'tokens' | 'cost'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -45,6 +50,15 @@ const skillStore = useHermesSkillStore()
 
 const loading = ref(true)
 const testingConnection = ref(false)
+
+const usageDays = ref(7)
+const usageMode = ref<UsageMode>('tokens')
+const usageData = ref<HermesUsageAnalytics | null>(null)
+const usageLoading = ref(false)
+const usageError = ref<string | null>(null)
+const trendSvgRef = ref<SVGSVGElement | null>(null)
+const trendHoverIndex = ref<number | null>(null)
+const trendTooltipStyle = ref<Record<string, string> | null>(null)
 
 // ---- Connection Status ----
 
@@ -114,6 +128,125 @@ const enabledSkills = computed(() =>
   skillStore.skills.filter((s) => s.enabled).length,
 )
 
+// ---- Usage Analytics ----
+
+const totalTokens = computed(() => {
+  if (!usageData.value) return 0
+  return usageData.value.totals.total_input + usageData.value.totals.total_output
+})
+
+const tokenSegments = computed(() => {
+  if (!usageData.value) return []
+  if (usageMode.value === 'tokens') {
+    return [
+      { key: 'input', label: t('pages.hermesDashboard.usage.inputTokens'), value: usageData.value.totals.total_input, color: '#2a7fff' },
+      { key: 'output', label: t('pages.hermesDashboard.usage.outputTokens'), value: usageData.value.totals.total_output, color: '#18a058' },
+    ]
+  }
+  return [
+    { key: 'inputCost', label: t('pages.hermesDashboard.usage.totalCost'), value: usageData.value.totals.total_estimated_cost, color: '#2a7fff' },
+  ]
+})
+
+const segmentTotal = computed(() => {
+  const sum = tokenSegments.value.reduce((acc, item) => acc + item.value, 0)
+  return sum > 0 ? sum : 1
+})
+
+const dailyTrendSeries = computed(() => {
+  if (!usageData.value?.daily) return []
+  return usageData.value.daily.map((item) => ({
+    date: item.day,
+    tokens: item.input_tokens + item.output_tokens,
+    cost: item.estimated_cost,
+    inputTokens: item.input_tokens,
+    outputTokens: item.output_tokens,
+  }))
+})
+
+const trendGeometry = computed(() => {
+  const width = 760
+  const height = 200
+  const left = 50
+  const right = 16
+  const top = 16
+  const bottom = 36
+  const series = dailyTrendSeries.value
+  const usableWidth = width - left - right
+  const usableHeight = height - top - bottom
+  const valueKey = usageMode.value === 'tokens' ? 'tokens' : 'cost'
+  const maxValue = Math.max(...series.map((item) => item[valueKey] as number), 0, 1)
+
+  const points = series.map((item, index) => {
+    const x =
+      series.length === 1
+        ? left + usableWidth / 2
+        : left + (index / (series.length - 1)) * usableWidth
+    const y = top + usableHeight - ((item[valueKey] as number) / maxValue) * usableHeight
+    return {
+      ...item,
+      x,
+      y,
+    }
+  })
+
+  const polyline = points.map((point) => `${point.x},${point.y}`).join(' ')
+  const areaPath = points.length
+    ? `M ${left} ${top + usableHeight} L ${points.map((point) => `${point.x} ${point.y}`).join(' L ')} L ${left + usableWidth} ${top + usableHeight} Z`
+    : ''
+  const guides = [0, 0.25, 0.5, 0.75, 1].map((ratio) => ({
+    ratio,
+    y: top + usableHeight - usableHeight * ratio,
+    value: maxValue * ratio,
+  }))
+
+  return {
+    width,
+    height,
+    left,
+    right,
+    top,
+    bottom,
+    usableWidth,
+    usableHeight,
+    maxValue,
+    points,
+    polyline,
+    areaPath,
+    guides,
+  }
+})
+
+const trendAxisLabels = computed(() => {
+  if (dailyTrendSeries.value.length === 0) {
+    return { start: '-', mid: '-', end: '-' }
+  }
+  const start = dailyTrendSeries.value[0]
+  const mid = dailyTrendSeries.value[Math.floor((dailyTrendSeries.value.length - 1) / 2)]
+  const end = dailyTrendSeries.value[dailyTrendSeries.value.length - 1]
+  return {
+    start: start?.date.slice(5) || '-',
+    mid: mid?.date.slice(5) || '-',
+    end: end?.date.slice(5) || '-',
+  }
+})
+
+const hoveredTrendPoint = computed(() => {
+  const index = trendHoverIndex.value
+  if (index === null) return null
+  return trendGeometry.value.points[index] || null
+})
+
+const hoveredTrendText = computed(() => {
+  const point = hoveredTrendPoint.value
+  if (!point) return ''
+  return t('pages.hermesDashboard.usage.pointTitle', {
+    date: point.date,
+    tokens: formatCompactNumber(point.tokens),
+    cost: formatUsd(point.cost),
+  })
+})
+
 // ---- Recent Sessions ----
 
 const recentSessions = computed(() =>
@@ -128,18 +261,27 @@ const recentSessions = computed(() =>
 
 const sessionColumns = computed<DataTableColumns<HermesSession>>(() => [
   {
+    title: t('pages.hermesDashboard.recentSessions.columns.sessionId'),
+    key: 'id',
+    width: 140,
+    ellipsis: { tooltip: true },
+    render(row) {
+      return h('span', { style: 'font-family: var(--mono); font-size: 12px;' }, row.id)
+    },
+  },
+  {
     title: t('pages.hermesDashboard.recentSessions.columns.title'),
     key: 'title',
+    width: 100,
     ellipsis: { tooltip: true },
-    minWidth: 150,
     render(row) {
-      return row.title || t('pages.hermesDashboard.recentSessions.untitled')
+      return row.title || '-'
     },
   },
   {
     title: t('pages.hermesDashboard.recentSessions.columns.model'),
     key: 'model',
-    width: 140,
+    width: 120,
     ellipsis: { tooltip: true },
     render(row) {
       return row.model || '-'
@@ -148,7 +290,7 @@ const sessionColumns = computed<DataTableColumns<HermesSession>>(() => [
   {
     title: t('pages.hermesDashboard.recentSessions.columns.messages'),
     key: 'messageCount',
-    width: 100,
+    width: 80,
     align: 'center',
     render(row) {
       return row.messageCount || 0
@@ -157,7 +299,7 @@ const sessionColumns = computed<DataTableColumns<HermesSession>>(() => [
   {
     title: t('pages.hermesDashboard.recentSessions.columns.lastUpdated'),
     key: 'updatedAt',
-    width: 140,
+    width: 70,
     render(row) {
       return row.updatedAt ? formatRelativeTime(row.updatedAt) : '-'
     },
@@ -165,7 +307,7 @@ const sessionColumns = computed<DataTableColumns<HermesSession>>(() => [
   {
     title: t('pages.hermesDashboard.recentSessions.columns.actions'),
     key: 'actions',
-    width: 80,
+    width: 70,
     align: 'center',
     render(row) {
       return h(
@@ -227,6 +369,138 @@ function systemSettings() {
   router.push({ name: 'HermesSystem' })
 }
 
+// ---- Usage Analytics Helpers ----
+
+function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(value)
+}
+
+function formatUsd(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: value > 0 && value < 0.01 ? 4 : 2,
+    maximumFractionDigits: value > 0 && value < 0.01 ? 4 : 2,
+  }).format(value)
+}
+
+async function fetchUsageAnalytics() {
+  if (!connStore.hermesConnected) {
+    usageError.value = t('pages.hermesDashboard.usage.errorNotConnected')
+    return
+  }
+  const client = connStore.getClient()
+  if (!client) {
+    usageError.value = t('pages.hermesDashboard.usage.errorNoClient')
+    return
+  }
+
+  usageLoading.value = true
+  usageError.value = null
+  try {
+    usageData.value = await client.getUsageAnalytics(usageDays.value)
+  } catch (err) {
+    console.error('Failed to fetch usage analytics:', err)
+    usageData.value = null
+    if (err instanceof Error) {
+      if (err.message.includes('502') || err.message.includes('unavailable')) {
+        usageError.value = t('pages.hermesDashboard.usage.errorDashboard')
+      } else {
+        usageError.value = err.message
+      }
+    } else {
+      usageError.value = String(err)
+    }
+  } finally {
+    usageLoading.value = false
+  }
+}
+
+function setUsageDays(days: number) {
+  usageDays.value = days
+  fetchUsageAnalytics()
+}
+
+function clearTrendHover() {
+  trendHoverIndex.value = null
+  trendTooltipStyle.value = null
+}
+
+function handleTrendMouseMove(event: MouseEvent) {
+  const svg = trendSvgRef.value
+  const points = trendGeometry.value.points
+  if (!svg || points.length === 0) {
+    clearTrendHover()
+    return
+  }
+
+  const firstPoint = points[0]
+  if (!firstPoint) {
+    clearTrendHover()
+    return
+  }
+
+  const rect = svg.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) {
+    clearTrendHover()
+    return
+  }
+
+  const svgX = ((event.clientX - rect.left) / rect.width) * trendGeometry.value.width
+  const plotMinX = trendGeometry.value.left
+  const plotMaxX = trendGeometry.value.left + trendGeometry.value.usableWidth
+  if (svgX < plotMinX || svgX > plotMaxX) {
+    clearTrendHover()
+    return
+  }
+
+  let nearestIndex = 0
+  let nearestDistance = Math.abs(firstPoint.x - svgX)
+  for (let i = 1; i < points.length; i += 1) {
+    const candidate = points[i]
+    if (!candidate) continue
+
+    const distance = Math.abs(candidate.x - svgX)
+    if (distance < nearestDistance) {
+      nearestDistance = distance
+      nearestIndex = i
+    }
+  }
+
+  const point = points[nearestIndex]
+  if (!point) {
+    clearTrendHover()
+    return
+  }
+  trendHoverIndex.value = nearestIndex
+
+  const tooltipWidth = 200
+  const tooltipHeight = 28
+  const margin = 8
+  const offsetX = 12
+  const offsetY = 10
+
+  const pointPxX = (point.x / trendGeometry.value.width) * rect.width
+  const pointPxY = (point.y / trendGeometry.value.height) * rect.height
+
+  let left = pointPxX + offsetX
+  let top = pointPxY - offsetY - tooltipHeight
+
+  if (left + tooltipWidth > rect.width - margin) left = pointPxX - offsetX - tooltipWidth
+  left = Math.max(margin, Math.min(left, rect.width - tooltipWidth - margin))
+
+  if (top < margin) top = pointPxY + offsetY
+  top = Math.max(margin, Math.min(top, rect.height - tooltipHeight - margin))
+
+  trendTooltipStyle.value = {
+    left: `${left}px`,
+    top: `${top}px`,
+  }
+}
+
 // ---- Data Loading ----
 
 async function refreshData() {
@@ -239,6 +513,7 @@ async function refreshData() {
       sessionStore.fetchSessions(),
       modelStore.fetchModels(),
       skillStore.fetchSkills(),
+      fetchUsageAnalytics(),
     ])
   } finally {
     loading.value = false
@@ -343,6 +618,206 @@ onMounted(() => {
           </NCard>
         </NGridItem>
       </NGrid>
+
+      <!-- Usage Analytics Section -->
+      <NCard class="app-card hermes-card" :title="t('pages.hermesDashboard.usage.title')">
+        <template #header-extra>
+          <NSpace :size="8" align="center" wrap>
+            <NButton
+              size="small"
+              :type="usageDays === 1 ? 'primary' : 'default'"
+              secondary
+              @click="setUsageDays(1)"
+            >
+              {{ t('pages.hermesDashboard.usage.range.today') }}
+            </NButton>
+            <NButton
+              size="small"
+              :type="usageDays === 7 ? 'primary' : 'default'"
+              secondary
+              @click="setUsageDays(7)"
+            >
+              {{ t('pages.hermesDashboard.usage.range.7d') }}
+            </NButton>
+            <NButton
+              size="small"
+              :type="usageDays === 30 ? 'primary' : 'default'"
+              secondary
+              @click="setUsageDays(30)"
+            >
+              {{ t('pages.hermesDashboard.usage.range.30d') }}
+            </NButton>
+            <NButton
+              size="small"
+              :type="usageMode === 'tokens' ? 'primary' : 'default'"
+              secondary
+              @click="usageMode = 'tokens'"
+            >
+              {{ t('pages.hermesDashboard.usage.mode.tokens') }}
+            </NButton>
+            <NButton
+              size="small"
+              :type="usageMode === 'cost' ? 'primary' : 'default'"
+              secondary
+              @click="usageMode = 'cost'"
+            >
+              {{ t('pages.hermesDashboard.usage.mode.cost') }}
+            </NButton>
+            <NButton
+              size="small"
+              :loading="usageLoading"
+              @click="fetchUsageAnalytics"
+            >
+              <template #icon><NIcon :component="RefreshOutline" /></template>
+              {{ t('pages.hermesDashboard.usage.refresh') }}
+            </NButton>
+          </NSpace>
+        </template>
+
+        <NAlert v-if="usageError" type="warning" style="margin-bottom: 16px;">
+          {{ usageError }}
+        </NAlert>
+
+        <NSpin :show="usageLoading">
+          <template v-if="usageData">
+            <NGrid cols="1 m:2" responsive="screen" :x-gap="12" :y-gap="12">
+          <NGridItem>
+            <NCard class="app-card usage-stat-card" :bordered="false">
+              <div class="usage-stat-inner">
+                <div class="usage-stat-icon" style="background: rgba(42, 127, 255, 0.15); color: #2a7fff;">
+                  <NIcon :size="24" :component="TrendingUpOutline" />
+                </div>
+                <div class="usage-stat-content">
+                  <div class="usage-stat-value">{{ formatCompactNumber(totalTokens) }}</div>
+                  <div class="usage-stat-label">{{ t('pages.hermesDashboard.usage.totalTokens') }}</div>
+                </div>
+              </div>
+            </NCard>
+          </NGridItem>
+          <NGridItem>
+            <NCard class="app-card usage-stat-card usage-stat-card--cost" :bordered="false">
+              <div class="usage-stat-inner">
+                <div class="usage-stat-icon" style="background: rgba(24, 160, 88, 0.15); color: #18a058">
+                  <NIcon :size="24" :component="WalletOutline" />
+                </div>
+                <div class="usage-stat-content">
+                  <div class="usage-stat-value">{{ formatUsd(usageData?.totals?.total_estimated_cost || 0) }}</div>
+                  <div class="usage-stat-label">{{ t('pages.hermesDashboard.usage.totalCost') }}</div>
+                </div>
+              </div>
+            </NCard>
+          </NGridItem>
+        </NGrid>
+
+        <!-- Token Distribution Bar -->
+        <div v-if="usageData && tokenSegments.length > 0" class="token-distribution">
+          <NSpace justify="space-between" align="center" style="margin-bottom: 8px;">
+            <NText depth="3">{{ usageMode === 'tokens' ? t('pages.hermesDashboard.usage.totalTokens') : t('pages.hermesDashboard.usage.totalCost') }}</NText>
+            <NText strong>{{ usageMode === 'tokens' ? formatCompactNumber(totalTokens) : formatUsd(usageData.totals.total_estimated_cost) }}</NText>
+          </NSpace>
+          <div class="segment-track">
+            <div
+              v-for="segment in tokenSegments"
+              :key="segment.key"
+              class="segment-item"
+              :style="{
+                width: `${Math.max((segment.value / segmentTotal) * 100, segment.value > 0 ? 4 : 0)}%`,
+                background: segment.color,
+              }"
+            />
+          </div>
+          <div class="segment-list">
+            <div v-for="segment in tokenSegments" :key="`${segment.key}-row`" class="segment-row">
+              <div class="segment-row-label">
+                <span class="segment-dot" :style="{ background: segment.color }" />
+                <span>{{ segment.label }}</span>
+              </div>
+              <NText>{{ usageMode === 'tokens' ? formatCompactNumber(segment.value) : formatUsd(segment.value) }}</NText>
+            </div>
+          </div>
+        </div>
+
+        <!-- Daily Trend Chart -->
+        <NCard class="app-card hermes-card" :title="t('pages.hermesDashboard.usage.trend')">
+          <div class="trend-chart-panel">
+            <template v-if="trendGeometry.points.length">
+              <div class="trend-chart-canvas">
+                <svg
+                  ref="trendSvgRef"
+                  class="trend-chart-svg"
+                  :viewBox="`0 0 ${trendGeometry.width} ${trendGeometry.height}`"
+                  preserveAspectRatio="none"
+                  @mousemove="handleTrendMouseMove"
+                  @mouseleave="clearTrendHover"
+                >
+                  <g v-for="guide in trendGeometry.guides" :key="`guide-${guide.ratio}`">
+                    <line
+                      :x1="trendGeometry.left"
+                      :y1="guide.y"
+                      :x2="trendGeometry.left + trendGeometry.usableWidth"
+                      :y2="guide.y"
+                      class="trend-grid-line"
+                    />
+                    <text
+                      x="4"
+                      :y="guide.y + 4"
+                      class="trend-grid-label"
+                    >
+                      {{ usageMode === 'tokens' ? formatCompactNumber(guide.value) : formatUsd(guide.value) }}
+                    </text>
+                  </g>
+
+                  <path
+                    v-if="trendGeometry.areaPath"
+                    class="trend-area"
+                    :d="trendGeometry.areaPath"
+                  />
+                  <polyline
+                    v-if="trendGeometry.polyline"
+                    class="trend-line"
+                    :points="trendGeometry.polyline"
+                  />
+                  <line
+                    v-if="hoveredTrendPoint"
+                    class="trend-hover-line"
+                    :x1="hoveredTrendPoint.x"
+                    :y1="trendGeometry.top"
+                    :x2="hoveredTrendPoint.x"
+                    :y2="trendGeometry.top + trendGeometry.usableHeight"
+                  />
+                  <circle
+                    v-for="point in trendGeometry.points"
+                    :key="`point-${point.date}`"
+                    class="trend-point"
+                    :class="{ 'trend-point-active': hoveredTrendPoint?.date === point.date }"
+                    :cx="point.x"
+                    :cy="point.y"
+                    :r="hoveredTrendPoint?.date === point.date ? 5 : 3"
+                  />
+                </svg>
+
+                <div v-if="hoveredTrendPoint && trendTooltipStyle" class="trend-tooltip" :style="trendTooltipStyle">
+                  {{ hoveredTrendText }}
+                </div>
+              </div>
+
+              <div class="trend-axis-note">
+                <span>{{ trendAxisLabels.start }}</span>
+                <span>{{ trendAxisLabels.mid }}</span>
+                <span>{{ trendAxisLabels.end }}</span>
+              </div>
+            </template>
+            <div v-else class="trend-empty">{{ t('pages.hermesDashboard.usage.trendEmpty') }}</div>
+          </div>
+        </NCard>
+          </template>
+          <template v-else-if="!usageLoading && !usageError">
+            <div class="usage-empty-state">
+              <NText depth="3">{{ t('pages.hermesDashboard.usage.noData') }}</NText>
+            </div>
+          </template>
+        </NSpin>
+      </NCard>
 
       <!-- Recent Sessions + Active Model -->
       <NGrid cols="1 l:3" responsive="screen" :x-gap="12" :y-gap="12">
@@ -721,5 +1196,191 @@ onMounted(() => {
   .quick-actions-grid {
     grid-template-columns: 1fr 1fr;
   }
+}
+
+/* ---- Usage Analytics ---- */
+
+.usage-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  padding: 40px;
+}
+
+.usage-stat-card {
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, rgba(42, 127, 255, 0.06), rgba(42, 127, 255, 0.02));
+  border: 1px solid rgba(42, 127, 255, 0.12);
+}
+
+.usage-stat-card--cost {
+  background: linear-gradient(135deg, rgba(24, 160, 88, 0.06), rgba(24, 160, 88, 0.02));
+  border: 1px solid rgba(24, 160, 88, 0.12);
+}
+
+.usage-stat-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.usage-stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.usage-stat-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.usage-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.usage-stat-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.token-distribution {
+  margin-top: 16px;
+}
+
+.segment-track {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+  margin-bottom: 12px;
+}
+
+.segment-item {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.segment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.segment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.segment-row-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.segment-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.trend-chart-panel {
+  position: relative;
+  min-height: 200px;
+}
+
+.trend-chart-canvas {
+  position: relative;
+  width: 100%;
+  height: 200px;
+}
+
+.trend-chart-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.trend-grid-line {
+  stroke: var(--border-color);
+  stroke-dasharray: 4 4;
+}
+
+.trend-grid-label {
+  fill: var(--text-tertiary);
+  font-size: 10px;
+  font-family: var(--mono);
+}
+
+.trend-area {
+  fill: rgba(42, 127, 255, 0.1);
+}
+
+.trend-line {
+  fill: none;
+  stroke: #2a7fff;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trend-hover-line {
+  stroke: rgba(42, 127, 255, 0.4);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.trend-point {
+  fill: #2a7fff;
+  stroke: var(--bg-card);
+  stroke-width: 2;
+  transition: r 0.15s ease;
+}
+
+.trend-point-active {
+  fill: #2a7fff;
+}
+
+.trend-tooltip {
+  position: absolute;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--mono);
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+.trend-axis-note {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+}
+
+.trend-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  color: var(--text-tertiary);
+  font-size: 13px;
 }
 </style>

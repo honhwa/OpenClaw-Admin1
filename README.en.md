@@ -1,4 +1,4 @@
-# OpenClaw Admin - AI Agent Management Platform
+# Claw Admin - AI Agent Management Platform
 
 <p align="center">
   <strong>Modern AI Agent Gateway Management Console</strong>
@@ -15,17 +15,17 @@
   <a href="README.md">中文</a>
 </p>
 
----
+***
 
 ## Introduction
 
-OpenClaw Admin is a modern AI agent management platform built with Vue 3, supporting both **OpenClaw Gateway** and **Hermes Agent**. Through intuitive visual operations, users can easily manage AI agents, sessions, models, channels, skills, and other core features, with a full-featured Web CLI terminal experience.
+Claw Admin is a modern AI agent management platform built with Vue 3, supporting both **OpenClaw Gateway** and **Hermes Agent**. Through intuitive visual operations, users can easily manage AI agents, sessions, models, channels, skills, and other core features, with a full-featured Web CLI terminal experience.
 
 ### Version Compatibility
 
 | OpenClaw Admin | OpenClaw Gateway | Hermes Agent | Status     |
 | -------------- | ---------------- | ------------ | ---------- |
-| 0.2.7          | 2026.4.5         | 2026.4.x     | ✅ Verified |
+| 0.2.7          | 2026.4.5         | 2026.4.9     | ✅ Verified |
 
 ### Highlights
 
@@ -36,7 +36,7 @@ OpenClaw Admin is a modern AI agent management platform built with Vue 3, suppor
 - 🌍 **Internationalization**: Built-in Chinese and English support, seamless switching
 - 🎨 **Modern UI**: Responsive design based on Naive UI, supports light/dark themes
 
----
+***
 
 ## Features
 
@@ -190,7 +190,7 @@ OpenClaw Admin is a modern AI agent management platform built with Vue 3, suppor
 - Appearance and theme settings
 - Environment variable configuration
 
----
+***
 
 ### II. Hermes Agent Module
 
@@ -220,7 +220,7 @@ OpenClaw Admin is a modern AI agent management platform built with Vue 3, suppor
 
 - Model list (OpenAI-compatible format)
 - Current model switching
-- Model capability tags (vision, function_calling, etc.)
+- Model capability tags (vision, function\_calling, etc.)
 
 #### Hermes Channels
 
@@ -263,7 +263,7 @@ OpenClaw Admin is a modern AI agent management platform built with Vue 3, suppor
 - **No WebSocket**: Pure SSE + HTTP POST dual-channel, compatible with strict network policies
 - **Terminal Features**: Fullscreen mode, right-click paste, selection copy, auto-fit
 
----
+***
 
 ## Tech Stack
 
@@ -287,23 +287,23 @@ OpenClaw Admin is a modern AI agent management platform built with Vue 3, suppor
 
 ### Communication & Data
 
-| Technology  | Version | Description                            |
-| ----------- | ------- | -------------------------------------- |
-| WebSocket   | -       | Real-time Bidirectional Communication (OpenClaw) |
-| SSE         | -       | Server-Sent Events (Hermes)            |
-| markdown-it | 14.x    | Markdown Parser                        |
-| highlight.js| 11.x    | Code Highlighting                       |
-| KaTeX       | 16.x    | LaTeX Math Formula Rendering            |
+| Technology   | Version | Description                                      |
+| ------------ | ------- | ------------------------------------------------ |
+| WebSocket    | -       | Real-time Bidirectional Communication (OpenClaw) |
+| SSE          | -       | Server-Sent Events (Hermes)                      |
+| markdown-it  | 14.x    | Markdown Parser                                  |
+| highlight.js | 11.x    | Code Highlighting                                |
+| KaTeX        | 16.x    | LaTeX Math Formula Rendering                     |
 
 ### Backend Services
 
-| Technology     | Version | Description              |
-| -------------- | ------- | ------------------------ |
-| Express        | 5.x     | Node.js Web Framework    |
-| ws             | 8.x     | WebSocket Implementation |
-| better-sqlite3 | 12.x    | SQLite Database          |
+| Technology     | Version | Description                            |
+| -------------- | ------- | -------------------------------------- |
+| Express        | 5.x     | Node.js Web Framework                  |
+| ws             | 8.x     | WebSocket Implementation               |
+| better-sqlite3 | 12.x    | SQLite Database                        |
 | node-pty       | 1.x     | Pseudo Terminal Support (CLI Terminal) |
-| ssh2           | 1.x     | SSH Client               |
+| ssh2           | 1.x     | SSH Client                             |
 
 ### Terminal
 
@@ -313,7 +313,7 @@ OpenClaw Admin is a modern AI agent management platform built with Vue 3, suppor
 | @xterm/addon-fit       | 0.11.x  | Terminal Fit      |
 | @xterm/addon-web-links | 0.12.x  | Link Support      |
 
----
+***
 
 ## Quick Start
 
@@ -369,7 +369,7 @@ npm run build
 npm run preview
 ```
 
----
+***
 
 ## Hermes Agent Integration
 
@@ -377,11 +377,11 @@ npm run preview
 
 Hermes Agent must be installed and configured separately. OpenClaw Admin communicates with Hermes Agent via HTTP API. The following services need to be running:
 
-| Service              | Default Port | Description                                      |
-| -------------------- | ------------ | ------------------------------------------------ |
-| Hermes Web UI        | 9119         | Management REST API (sessions, config, skills, etc.) |
-| Hermes API Server    | 8642         | OpenAI-compatible API (chat, models, runs)       |
-| Hermes CLI           | -            | Python CLI tool (used by Web terminal)           |
+| Service           | Default Port | Description                                          |
+| ----------------- | ------------ | ---------------------------------------------------- |
+| Hermes Web UI     | 9119         | Management REST API (sessions, config, skills, etc.) |
+| Hermes API Server | 8642         | OpenAI-compatible API (chat, models, runs)           |
+| Hermes CLI        | -            | Python CLI tool (used by Web terminal)               |
 
 ### Installing Hermes Agent
 
@@ -493,23 +493,23 @@ HERMES_CLI_PATH=/path/to/hermes         # Hermes CLI path (optional, auto-detect
 
 The Hermes CLI terminal supports the following launch parameters:
 
-| Parameter          | Type    | Description                                        |
-| ------------------ | ------- | -------------------------------------------------- |
-| `-m` / `--model`   | string  | Specify model (e.g., `anthropic/claude-sonnet-4`) |
-| `--provider`       | string  | Specify provider (auto/openrouter/anthropic/custom, etc.) |
-| `-s` / `--skills`  | string[]| Pre-load skills (multiple allowed)                 |
-| `-t` / `--toolsets`| string  | Toolsets (comma-separated)                        |
-| `-r` / `--resume`  | string  | Resume a specific session                         |
-| `-c` / `--continue`| string  | Continue a named session                          |
-| `--yolo`           | boolean | Skip dangerous command confirmations               |
-| `--checkpoints`    | boolean | Enable filesystem checkpoints                     |
-| `--max-turns`      | number  | Maximum tool iteration count                      |
-| `-v` / `--verbose` | boolean | Verbose output                                    |
-| `-Q` / `--quiet`   | boolean | Quiet mode                                        |
+| Parameter           | Type      | Description                                               |
+| ------------------- | --------- | --------------------------------------------------------- |
+| `-m` / `--model`    | string    | Specify model (e.g., `anthropic/claude-sonnet-4`)         |
+| `--provider`        | string    | Specify provider (auto/openrouter/anthropic/custom, etc.) |
+| `-s` / `--skills`   | string\[] | Pre-load skills (multiple allowed)                        |
+| `-t` / `--toolsets` | string    | Toolsets (comma-separated)                                |
+| `-r` / `--resume`   | string    | Resume a specific session                                 |
+| `-c` / `--continue` | string    | Continue a named session                                  |
+| `--yolo`            | boolean   | Skip dangerous command confirmations                      |
+| `--checkpoints`     | boolean   | Enable filesystem checkpoints                             |
+| `--max-turns`       | number    | Maximum tool iteration count                              |
+| `-v` / `--verbose`  | boolean   | Verbose output                                            |
+| `-Q` / `--quiet`    | boolean   | Quiet mode                                                |
 
 In the Web interface, expand the **Launch Config** panel to visually configure these parameters.
 
----
+***
 
 ## Project Structure
 
@@ -635,7 +635,7 @@ openclaw-admin/
 └── .env                            # Local Environment Variables (copied from .env.example)
 ```
 
----
+***
 
 ## Development Guide
 
@@ -647,12 +647,12 @@ openclaw-admin/
 
 ### Naming Conventions
 
-| Type        | Convention     | Example                    |
-| ----------- | -------------- | -------------------------- |
-| Components  | PascalCase.vue | `ConnectionStatus.vue`     |
-| Route Pages | *Page.vue      | `HermesChatPage.vue`       |
-| Store       | camelCase.ts   | `hermes-cli.ts`            |
-| Composable  | use*.ts        | `useTheme.ts`              |
+| Type        | Convention     | Example                |
+| ----------- | -------------- | ---------------------- |
+| Components  | PascalCase.vue | `ConnectionStatus.vue` |
+| Route Pages | \*Page.vue     | `HermesChatPage.vue`   |
+| Store       | camelCase.ts   | `hermes-cli.ts`        |
+| Composable  | use\*.ts       | `useTheme.ts`          |
 
 ### Build Verification
 
@@ -700,7 +700,7 @@ LOG_LEVEL=INFO
 MEDIA_DIR=
 ```
 
----
+***
 
 ## API Reference
 
@@ -764,24 +764,24 @@ The project communicates with OpenClaw Gateway via WebSocket, supporting the fol
 
 The backend proxies requests to two Hermes Agent services via `hermes-proxy.js`:
 
-| Target Service    | Default Port | Proxy Prefix     | Description                                    |
-| ----------------- | ------------ | ---------------- | ---------------------------------------------- |
-| Hermes Web UI     | 9119         | `/api/hermes/`   | Management API (sessions, config, skills, etc.) |
-| Hermes API Server | 8642         | `/api/hermes/v1/`| OpenAI-compatible API (chat, models, runs)      |
+| Target Service    | Default Port | Proxy Prefix      | Description                                     |
+| ----------------- | ------------ | ----------------- | ----------------------------------------------- |
+| Hermes Web UI     | 9119         | `/api/hermes/`    | Management API (sessions, config, skills, etc.) |
+| Hermes API Server | 8642         | `/api/hermes/v1/` | OpenAI-compatible API (chat, models, runs)      |
 
 ### Hermes CLI Terminal API
 
-| Method | Path                            | Description                              |
-| ------ | ------------------------------- | ---------------------------------------- |
-| GET    | `/api/hermes-cli/stream`        | Create/reconnect CLI session (SSE stream)|
-| POST   | `/api/hermes-cli/input`         | Send keyboard input to CLI process       |
-| POST   | `/api/hermes-cli/resize`        | Resize terminal                          |
-| POST   | `/api/hermes-cli/destroy`       | Destroy CLI session                      |
-| POST   | `/api/hermes-cli/heartbeat`     | Heartbeat keep-alive                     |
-| GET    | `/api/hermes-cli/sessions`      | List all CLI sessions                    |
-| POST   | `/api/hermes-cli/sessions/rename`| Rename a session                         |
+| Method | Path                              | Description                               |
+| ------ | --------------------------------- | ----------------------------------------- |
+| GET    | `/api/hermes-cli/stream`          | Create/reconnect CLI session (SSE stream) |
+| POST   | `/api/hermes-cli/input`           | Send keyboard input to CLI process        |
+| POST   | `/api/hermes-cli/resize`          | Resize terminal                           |
+| POST   | `/api/hermes-cli/destroy`         | Destroy CLI session                       |
+| POST   | `/api/hermes-cli/heartbeat`       | Heartbeat keep-alive                      |
+| GET    | `/api/hermes-cli/sessions`        | List all CLI sessions                     |
+| POST   | `/api/hermes-cli/sessions/rename` | Rename a session                          |
 
----
+***
 
 ## Security Notes
 
@@ -790,13 +790,13 @@ The backend proxies requests to two Hermes Agent services via `hermes-proxy.js`:
 - API Keys are only submitted when a new value is entered, otherwise the original value is kept
 - Hermes CLI sessions have a 2-hour orphan timeout for automatic cleanup
 
----
+***
 
 ## License
 
 [MIT License](LICENSE)
 
----
+***
 
 ## Contributing
 
@@ -810,7 +810,7 @@ Issues and Pull Requests are welcome!
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Create a Pull Request
 
----
+***
 
 ## Contact
 
@@ -823,9 +823,12 @@ Issues and Pull Requests are welcome!
 Welcome to join our WeChat group for latest updates and technical support:
 
 ![WeChat Group](docs/images/微信群.png)
+![WeChat Group-2](docs/images/微信群-2.png)
+![WeChat Group-3](docs/images/微信群-3.png)
+![WeChat Group-4](docs/images/微信群-4.png)
 
----
+***
 
 <p align="center">
-  Made with ❤️ by <a href="https://github.com/itq5/OpenClaw-Admin">OpenClaw Admin</a> Team
+  Made with ❤️ by <a href="https://github.com/itq5/OpenClaw-Admin">Claw Admin</a> Team
 </p>

@@ -60,7 +60,7 @@ function getPlatformLabel(platform: string): string {
 }
 
 function formatTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleString()
+  return new Date(timestamp).toLocaleString(undefined, { timeZone: 'Asia/Shanghai' })
 }
 
 function handleSelect(session: RemoteDesktopSession) {

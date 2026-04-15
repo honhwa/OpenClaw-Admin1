@@ -62,21 +62,57 @@ const createForm = ref({
   peer: '',
   label: '',
 })
-const checkedRowKeys = ref<string[]>([])
+const allSelectedKeys = ref<string[]>([])
 const batchDeleting = ref(false)
+const currentPage = ref(1)
+const pageSize = 12
 
 const allSessionKeys = computed(() => filteredSessions.value.map((s) => s.key))
 const isAllSelected = computed(() => {
   if (allSessionKeys.value.length === 0) return false
-  return allSessionKeys.value.every((key) => checkedRowKeys.value.includes(key))
+  return allSessionKeys.value.every((key) => allSelectedKeys.value.includes(key))
 })
 const isPartialSelected = computed(() => {
   if (allSessionKeys.value.length === 0) return false
   const selectedCount = allSessionKeys.value.filter((key) =>
-    checkedRowKeys.value.includes(key)
+    allSelectedKeys.value.includes(key)
   ).length
   return selectedCount > 0 && selectedCount < allSessionKeys.value.length
 })
+
+const currentPageKeys = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  const end = start + pageSize
+  return filteredSessions.value.slice(start, end).map((s) => s.key)
+})
+
+function onUpdateCheckedRowKeys(keys: (string | number)[]) {
+  const currentKeys = new Set<string>(currentPageKeys.value)
+  const newKeys = new Set<string>(keys.map(String))
+  const toRemove: string[] = []
+  const toAdd: string[] = []
+
+  for (const key of currentKeys) {
+    if (!newKeys.has(key)) {
+      toRemove.push(key)
+    }
+  }
+  for (const key of newKeys) {
+    if (!currentKeys.has(key)) {
+      toAdd.push(key)
+    }
+  }
+
+  const removeSet = new Set<string>(toRemove)
+  allSelectedKeys.value = [
+    ...allSelectedKeys.value.filter((k) => !removeSet.has(k)),
+    ...toAdd,
+  ]
+}
+
+function handlePageChange(page: number) {
+  currentPage.value = page
+}
 
 const sortOptions = computed<SelectOption[]>(() => ([
   { label: t('pages.sessions.list.sort.recent'), value: 'recent' },
@@ -423,10 +459,10 @@ async function handleDelete(session: SessionRow) {
 }
 
 async function handleBatchDelete() {
-  if (checkedRowKeys.value.length === 0) return
+  if (allSelectedKeys.value.length === 0) return
   batchDeleting.value = true
   try {
-    const result = await sessionStore.deleteSessions(checkedRowKeys.value)
+    const result = await sessionStore.deleteSessions(allSelectedKeys.value)
     if (result.failedCount > 0) {
       message.warning(t('pages.sessions.list.batchDeletePartial', {
         deleted: result.deletedCount,
@@ -435,7 +471,7 @@ async function handleBatchDelete() {
     } else {
       message.success(t('pages.sessions.list.batchDeleteSuccess', { count: result.deletedCount }))
     }
-    checkedRowKeys.value = []
+    allSelectedKeys.value = []
   } catch {
     message.error(t('pages.sessions.list.batchDeleteFailed'))
   } finally {
@@ -445,9 +481,9 @@ async function handleBatchDelete() {
 
 function handleSelectAll() {
   if (isAllSelected.value) {
-    checkedRowKeys.value = []
+    allSelectedKeys.value = []
   } else {
-    checkedRowKeys.value = [...allSessionKeys.value]
+    allSelectedKeys.value = [...allSessionKeys.value]
   }
 }
 
@@ -502,7 +538,7 @@ async function handleCreateSession() {
             ({{ filteredSessions.length }})
           </NButton>
           <NPopconfirm
-            v-if="checkedRowKeys.length > 0"
+            v-if="allSelectedKeys.length > 0"
             :disabled="batchDeleting"
             @positive-click="handleBatchDelete"
           >
@@ -516,10 +552,10 @@ async function handleCreateSession() {
                 <template #icon>
                   <NIcon :component="TrashOutline" />
                 </template>
-                {{ t('pages.sessions.list.batchDelete', { count: checkedRowKeys.length }) }}
+                {{ t('pages.sessions.list.batchDelete', { count: allSelectedKeys.length }) }}
               </NButton>
             </template>
-            {{ t('pages.sessions.list.confirmBatchDelete', { count: checkedRowKeys.length }) }}
+            {{ t('pages.sessions.list.confirmBatchDelete', { count: allSelectedKeys.length }) }}
           </NPopconfirm>
           <NButton size="small" type="primary" @click="openCreateModal">
             <template #icon>
@@ -600,16 +636,17 @@ async function handleCreateSession() {
       </template>
 
       <NDataTable
-        v-model:checked-row-keys="checkedRowKeys"
+        :checked-row-keys="allSelectedKeys"
         :columns="sessionColumns"
         :data="filteredSessions"
         :loading="sessionStore.loading"
         :bordered="false"
         :row-key="(row: SessionRow) => row.key"
-        :pagination="{ pageSize: 12 }"
+        :pagination="{ pageSize, page: currentPage, onChange: handlePageChange }"
         :scroll-x="1110"
         :max-height="600"
         striped
+        @update:checked-row-keys="onUpdateCheckedRowKeys"
       />
     </NCard>
 

@@ -179,16 +179,16 @@ export const routes: RouteRecordRaw[] = [
         meta: { titleKey: 'routes.hermesMemory', icon: 'BookOutline', gateway: 'hermes' },
       },
       {
-        path: 'hermes/system',
-        name: 'HermesSystem',
-        component: () => import('@/views/hermes/HermesSystemPage.vue'),
-        meta: { titleKey: 'routes.hermesSystem', icon: 'SettingsOutline', gateway: 'hermes' },
-      },
-      {
         path: 'hermes/cli',
         name: 'HermesCli',
         component: () => import('@/views/hermes/HermesCliPage.vue'),
         meta: { titleKey: 'routes.hermesCli', icon: 'TerminalOutline', gateway: 'hermes' },
+      },
+      {
+        path: 'hermes/system',
+        name: 'HermesSystem',
+        component: () => import('@/views/hermes/HermesSystemPage.vue'),
+        meta: { titleKey: 'routes.hermesSystem', icon: 'SettingsOutline', gateway: 'hermes' },
       },
       {
         path: 'settings',

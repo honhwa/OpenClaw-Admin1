@@ -18,6 +18,7 @@ import {
 } from 'naive-ui'
 import type { DataTableColumns, SelectOption } from 'naive-ui'
 import {
+  AddOutline,
   ChatbubblesOutline,
   FlashOutline,
   LogOutOutline,
@@ -30,6 +31,7 @@ import { useRouter } from 'vue-router'
 import { useHermesSessionStore } from '@/stores/hermes/session'
 import { useHermesChatStore } from '@/stores/hermes/chat'
 import type { HermesSession } from '@/api/hermes/types'
+import { formatDateShort } from '@/utils/format'
 
 type SortMode = 'recent' | 'messages'
 
@@ -141,22 +143,31 @@ function handleSelectAll() {
 const columns = computed<DataTableColumns<HermesSession>>(() => [
   { type: 'selection' },
   {
+    title: t('pages.hermesSessions.columns.sessionId'),
+    key: 'id',
+    width: 160,
+    ellipsis: { tooltip: true },
+    render(row) {
+      return h('span', { style: 'font-family: var(--mono); font-size: 12px;' }, row.id)
+    },
+  },
+  {
     title: t('pages.hermesSessions.columns.title'),
     key: 'title',
-    minWidth: 200,
+    width: 120,
     ellipsis: { tooltip: true },
     render(row) {
       return h(
         NText,
         { style: 'font-weight: 500;' },
-        { default: () => row.title || row.id },
+        { default: () => row.title || '-' },
       )
     },
   },
   {
     title: t('pages.hermesSessions.columns.model'),
     key: 'model',
-    width: 180,
+    width: 140,
     ellipsis: { tooltip: true },
     render(row) {
       return row.model
@@ -171,7 +182,7 @@ const columns = computed<DataTableColumns<HermesSession>>(() => [
   {
     title: t('pages.hermesSessions.columns.messages'),
     key: 'messageCount',
-    width: 100,
+    width: 80,
     sorter: (a, b) => (a.messageCount || 0) - (b.messageCount || 0),
     render(row) {
       return h(NText, { strong: true }, {
@@ -182,28 +193,28 @@ const columns = computed<DataTableColumns<HermesSession>>(() => [
   {
     title: t('pages.hermesSessions.columns.createdAt'),
     key: 'createdAt',
-    width: 180,
+    width: 140,
     render(row) {
-      return row.createdAt || '-'
+      return formatDateShort(row.createdAt || '')
     },
   },
   {
     title: t('pages.hermesSessions.columns.updatedAt'),
     key: 'updatedAt',
-    width: 180,
+    width: 140,
     sorter: (a, b) => {
       const tsA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0
       const tsB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0
       return tsA - tsB
     },
     render(row) {
-      return row.updatedAt || '-'
+      return formatDateShort(row.updatedAt || '')
     },
   },
   {
     title: t('pages.hermesSessions.columns.actions'),
     key: 'actions',
-    width: 170,
+    width: 140,
     render(row) {
       return h(NSpace, { size: 8, wrap: false, class: 'hermes-row-actions' }, () => [
         h(
@@ -323,6 +334,11 @@ async function handleJumpToChat(session: HermesSession) {
     message.error(t('pages.hermesSessions.loadFailed'))
   }
 }
+
+function handleNewChat() {
+  chatStore.clearMessages()
+  router.push('/hermes/chat')
+}
 </script>
 
 <template>
@@ -335,10 +351,23 @@ async function handleJumpToChat(session: HermesSession) {
       <template #header-extra>
         <NSpace :size="8">
           <NButton
+            size="small"
+            type="success"
+            secondary
+            class="app-toolbar-btn"
+            @click="handleNewChat"
+          >
+            <template #icon>
+              <NIcon :component="AddOutline" />
+            </template>
+            {{ t('pages.hermesSessions.newChat') }}
+          </NButton>
+          <NButton
             v-if="filteredSessions.length > 0"
             size="small"
-            :type="isAllSelected ? 'warning' : 'default'"
-            :ghost="!isAllSelected && !isPartialSelected"
+            :type="isAllSelected ? 'warning' : 'primary'"
+            secondary
+            class="app-toolbar-btn"
             @click="handleSelectAll"
           >
             <template #icon>
@@ -360,6 +389,8 @@ async function handleJumpToChat(session: HermesSession) {
               <NButton
                 size="small"
                 type="error"
+                secondary
+                class="app-toolbar-btn"
                 :loading="batchDeleting"
                 :disabled="batchDeleting"
               >
@@ -381,6 +412,7 @@ async function handleJumpToChat(session: HermesSession) {
           </NPopconfirm>
           <NButton
             size="small"
+            secondary
             class="app-toolbar-btn app-toolbar-btn--refresh"
             :loading="sessionStore.loading"
             @click="handleRefresh"

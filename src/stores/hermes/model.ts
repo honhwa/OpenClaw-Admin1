@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useHermesConnectionStore } from './connection'
-import type { HermesModel } from '@/api/hermes/types'
+import type { HermesModel, HermesEnvVar } from '@/api/hermes/types'
 
 export const useHermesModelStore = defineStore('hermes-model', () => {
   // ---- 状态 ----
@@ -10,6 +10,9 @@ export const useHermesModelStore = defineStore('hermes-model', () => {
   const currentModel = ref('')
   const loading = ref(false)
   const lastError = ref<string | null>(null)
+
+  const envVars = ref<HermesEnvVar[]>([])
+  const envLoading = ref(false)
 
   // ---- 方法 ----
 
@@ -68,15 +71,112 @@ export const useHermesModelStore = defineStore('hermes-model', () => {
     }
   }
 
+  // ---- 环境变量方法 ----
+
+  /**
+   * 获取环境变量列表
+   */
+  async function fetchEnvVars() {
+    const connStore = useHermesConnectionStore()
+    const client = await connStore.getClientAsync()
+    if (!client) {
+      throw new Error('Hermes 未连接')
+    }
+
+    envLoading.value = true
+    lastError.value = null
+
+    try {
+      envVars.value = await client.listEnvVars()
+    } catch (error) {
+      envVars.value = []
+      lastError.value = error instanceof Error ? error.message : String(error)
+      console.error('[HermesModelStore] fetchEnvVars failed:', error)
+    } finally {
+      envLoading.value = false
+    }
+  }
+
+  /**
+   * 设置环境变量
+   */
+  async function setEnvVar(key: string, value: string) {
+    const connStore = useHermesConnectionStore()
+    const client = await connStore.getClientAsync()
+    if (!client) {
+      throw new Error('Hermes 未连接')
+    }
+
+    lastError.value = null
+
+    try {
+      await client.setEnvVar(key, value)
+      await fetchEnvVars()
+    } catch (error) {
+      lastError.value = error instanceof Error ? error.message : String(error)
+      console.error('[HermesModelStore] setEnvVar failed:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 删除环境变量
+   */
+  async function deleteEnvVar(key: string) {
+    const connStore = useHermesConnectionStore()
+    const client = await connStore.getClientAsync()
+    if (!client) {
+      throw new Error('Hermes 未连接')
+    }
+
+    lastError.value = null
+
+    try {
+      await client.deleteEnvVar(key)
+      await fetchEnvVars()
+    } catch (error) {
+      lastError.value = error instanceof Error ? error.message : String(error)
+      console.error('[HermesModelStore] deleteEnvVar failed:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 显示环境变量明文
+   */
+  async function revealEnvVar(key: string): Promise<string> {
+    const connStore = useHermesConnectionStore()
+    const client = await connStore.getClientAsync()
+    if (!client) {
+      throw new Error('Hermes 未连接')
+    }
+
+    lastError.value = null
+
+    try {
+      return await client.revealEnvVar(key)
+    } catch (error) {
+      lastError.value = error instanceof Error ? error.message : String(error)
+      console.error('[HermesModelStore] revealEnvVar failed:', error)
+      throw error
+    }
+  }
+
   return {
     // 状态
     models,
     currentModel,
     loading,
     lastError,
+    envVars,
+    envLoading,
     // 方法
     fetchModels,
     setCurrentModel,
     syncCurrentModelFromConfig,
+    fetchEnvVars,
+    setEnvVar,
+    deleteEnvVar,
+    revealEnvVar,
   }
 })

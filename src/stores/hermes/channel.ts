@@ -102,7 +102,6 @@ export const useHermesChannelStore = defineStore('hermes-channel', () => {
 
     try {
       const updated = await client.updatePlatform(platformId, platformConfig)
-      // 更新本地列表
       const idx = platforms.value.findIndex((p) => p.id === platformId)
       if (idx >= 0) {
         const list = [...platforms.value]
@@ -118,6 +117,54 @@ export const useHermesChannelStore = defineStore('hermes-channel', () => {
     }
   }
 
+  /**
+   * 创建平台
+   */
+  async function createPlatform(
+    platformId: string,
+    platformConfig: Record<string, unknown>,
+  ) {
+    const connStore = useHermesConnectionStore()
+    const client = await connStore.getClientAsync()
+    if (!client) {
+      throw new Error('Hermes 未连接')
+    }
+
+    lastError.value = null
+
+    try {
+      const created = await client.createPlatform(platformId, platformConfig)
+      platforms.value = [...platforms.value, created]
+      return created
+    } catch (error) {
+      lastError.value = error instanceof Error ? error.message : String(error)
+      console.error('[HermesChannelStore] createPlatform failed:', error)
+      throw error
+    }
+  }
+
+  /**
+   * 删除平台
+   */
+  async function deletePlatform(platformId: string) {
+    const connStore = useHermesConnectionStore()
+    const client = await connStore.getClientAsync()
+    if (!client) {
+      throw new Error('Hermes 未连接')
+    }
+
+    lastError.value = null
+
+    try {
+      await client.deletePlatform(platformId)
+      platforms.value = platforms.value.filter((p) => p.id !== platformId)
+    } catch (error) {
+      lastError.value = error instanceof Error ? error.message : String(error)
+      console.error('[HermesChannelStore] deletePlatform failed:', error)
+      throw error
+    }
+  }
+
   return {
     // 状态
     platforms,
@@ -126,5 +173,7 @@ export const useHermesChannelStore = defineStore('hermes-channel', () => {
     // 方法
     fetchPlatforms,
     updatePlatform,
+    createPlatform,
+    deletePlatform,
   }
 })

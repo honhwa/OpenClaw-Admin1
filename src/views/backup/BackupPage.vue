@@ -427,7 +427,7 @@ onUnmounted(() => {
                 {{ formatTaskStatus(task.status) }}
               </NTag>
               <NText depth="3" style="font-size: 12px;">
-                {{ new Date(task.startedAt).toLocaleString() }}
+                {{ new Date(task.startedAt).toLocaleString(undefined, { timeZone: 'Asia/Shanghai' }) }}
               </NText>
             </NSpace>
           </template>
