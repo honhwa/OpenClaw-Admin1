@@ -34,6 +34,7 @@ import { useHermesConnectionStore } from '@/stores/hermes/connection'
 import { useHermesSessionStore } from '@/stores/hermes/session'
 import { useHermesModelStore } from '@/stores/hermes/model'
 import { useHermesSkillStore } from '@/stores/hermes/skill'
+import { useHermesConfigStore } from '@/stores/hermes/config'
 import { formatRelativeTime } from '@/utils/format'
 import type { HermesSession, HermesUsageAnalytics } from '@/api/hermes/types'
 
@@ -47,6 +48,7 @@ const connStore = useHermesConnectionStore()
 const sessionStore = useHermesSessionStore()
 const modelStore = useHermesModelStore()
 const skillStore = useHermesSkillStore()
+const configStore = useHermesConfigStore()
 
 const loading = ref(true)
 const testingConnection = ref(false)
@@ -79,9 +81,17 @@ const connectionType = computed<'success' | 'warning' | 'error' | 'default'>(() 
 const gatewayVersion = computed(() => connStore.hermesStatus?.version || '-')
 
 const uptimeDisplay = computed(() => {
-  const uptime = connStore.hermesStatus?.uptime
-  if (!uptime) return '-'
-  return formatUptime(uptime)
+  const updatedAt = connStore.hermesStatus?.gateway_updated_at
+  if (!updatedAt) return '-'
+  try {
+    const startTime = new Date(updatedAt).getTime()
+    const now = Date.now()
+    const uptimeSeconds = Math.floor((now - startTime) / 1000)
+    if (uptimeSeconds < 0) return '-'
+    return formatUptime(uptimeSeconds)
+  } catch {
+    return '-'
+  }
 })
 
 function formatUptime(seconds: number): string {
@@ -307,16 +317,15 @@ const sessionColumns = computed<DataTableColumns<HermesSession>>(() => [
   {
     title: t('pages.hermesDashboard.recentSessions.columns.actions'),
     key: 'actions',
-    width: 70,
+    width: 60,
     align: 'center',
     render(row) {
       return h(
         NButton,
         {
-          size: 'small',
+          size: 'tiny',
           type: 'primary',
           secondary: true,
-          class: 'app-toolbar-btn',
           onClick: () => goToChat(row.id),
         },
         { default: () => t('pages.hermesDashboard.recentSessions.chat') },
@@ -340,11 +349,96 @@ function viewAllSessions() {
 // ---- Active Model ----
 
 const currentModelInfo = computed(() => {
+  const providerName = currentProviderName.value
+  
   if (modelStore.currentModel) {
     const found = modelStore.models.find((m) => m.id === modelStore.currentModel)
-    if (found) return found
+    if (found) {
+      return {
+        ...found,
+        provider: found.provider || providerName,
+      }
+    }
   }
-  return modelStore.models.find((m) => m.enabled !== false) || modelStore.models[0] || null
+  
+  const configDefaultModel = typeof configStore.config?.model === 'string'
+    ? configStore.config.model
+    : configStore.config?.model?.default
+    
+  if (configDefaultModel) {
+    const found = modelStore.models.find((m) => m.id === configDefaultModel)
+    if (found) {
+      return {
+        ...found,
+        provider: found.provider || providerName,
+      }
+    }
+    return {
+      id: configDefaultModel,
+      label: configDefaultModel,
+      provider: providerName,
+    }
+  }
+  
+  const firstModel = modelStore.models.find((m) => m.enabled !== false) || modelStore.models[0]
+  if (firstModel) {
+    return {
+      ...firstModel,
+      provider: firstModel.provider || providerName,
+    }
+  }
+  
+  return null
+})
+
+const currentProviderName = computed(() => {
+  const config = configStore.config
+  if (!config) {
+    return 'Unknown'
+  }
+  
+  let modelConfig: { default?: string; provider?: string } | undefined
+  
+  if (typeof config.model === 'string') {
+    modelConfig = { default: config.model }
+  } else if (config.model && typeof config.model === 'object') {
+    modelConfig = config.model
+  }
+  
+  const providerKey = modelConfig?.provider
+  const defaultModel = modelConfig?.default || (typeof config.model === 'string' ? config.model : undefined)
+  
+  if (providerKey) {
+    if (providerKey.startsWith('custom:')) {
+      const providerId = providerKey.slice(7)
+      const customProviders = config.custom_providers
+      if (customProviders) {
+        const providersArray = Array.isArray(customProviders) ? customProviders : [customProviders]
+        const found = providersArray.find((p: { name: string }) => 
+          p.name === providerId || p.name.toLowerCase() === providerId.toLowerCase()
+        )
+        if (found) return found.name
+      }
+      return providerId
+    }
+    return providerKey
+  }
+  
+  if (defaultModel) {
+    const customProviders = config.custom_providers
+    if (customProviders) {
+      const providersArray = Array.isArray(customProviders) ? customProviders : [customProviders]
+      const found = providersArray.find((p: { model?: string; name: string }) => 
+        p.model === defaultModel
+      )
+      if (found) return found.name
+    }
+  }
+  
+  if (config.provider) return config.provider
+  if (config.modelProvider) return config.modelProvider
+  
+  return 'Unknown'
 })
 
 function goToModels() {
@@ -513,8 +607,10 @@ async function refreshData() {
       sessionStore.fetchSessions(),
       modelStore.fetchModels(),
       skillStore.fetchSkills(),
+      configStore.fetchConfig(),
       fetchUsageAnalytics(),
     ])
+    modelStore.syncCurrentModelSelectionFromConfig()
   } finally {
     loading.value = false
   }

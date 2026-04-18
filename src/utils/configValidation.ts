@@ -188,7 +188,7 @@ export function validateConfig(
   }
 
   for (const category of schema.categories) {
-    for (const field of category.fields) {
+    for (const field of category.fields || []) {
       const value = config[field.key]
       const result = validateField(field, value)
 
@@ -222,7 +222,7 @@ export function validateConfigChanges(
 
   const fieldMap = new Map<string, ConfigFieldSchema>()
   for (const category of schema.categories) {
-    for (const field of category.fields) {
+    for (const field of category.fields || []) {
       fieldMap.set(field.key, field)
     }
   }

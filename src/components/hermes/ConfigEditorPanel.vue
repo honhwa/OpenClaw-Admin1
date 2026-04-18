@@ -4,8 +4,6 @@ import {
   NButton,
   NIcon,
   NSpace,
-  NRadioGroup,
-  NRadioButton,
   NInput,
   NTooltip,
   useMessage,
@@ -14,26 +12,25 @@ import {
   SaveOutline,
   RefreshOutline,
   DownloadOutline,
-  CodeOutline,
-  SettingsOutline,
 } from '@vicons/ionicons5'
 import ConfigCategoryNav, { type ConfigCategory } from './ConfigCategoryNav.vue'
 import ConfigFormSection from './ConfigFormSection.vue'
-import type { ConfigFieldDefinition } from './ConfigField.vue'
+import type { ConfigFieldSchema } from '@/api/hermes/types'
 
 export interface ConfigSchema {
   categories: ConfigCategory[]
-  fields: Record<string, ConfigFieldDefinition[]>
+  fields: Record<string, ConfigFieldSchema[]>
 }
 
-type EditorMode = 'visual' | 'yaml'
-
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: Record<string, unknown>
   schema: ConfigSchema
   disabled?: boolean
   saving?: boolean
-}>()
+  mode?: 'visual' | 'yaml'
+}>(), {
+  mode: 'visual',
+})
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: Record<string, unknown>): void
@@ -44,7 +41,6 @@ const emit = defineEmits<{
 const message = useMessage()
 
 const activeCategory = ref<string | null>(null)
-const editorMode = ref<EditorMode>('visual')
 const localValues = ref<Record<string, unknown>>({})
 const originalValues = ref<Record<string, unknown>>({})
 const yamlContent = ref('')
@@ -209,16 +205,6 @@ function handleYamlChange(value: string) {
   <div class="config-editor-panel">
     <div class="config-editor-toolbar">
       <div class="config-editor-toolbar-left">
-        <NRadioGroup v-model:value="editorMode" size="small">
-          <NRadioButton value="visual">
-            <NIcon :component="SettingsOutline" :size="14" style="margin-right: 4px;" />
-            可视化
-          </NRadioButton>
-          <NRadioButton value="yaml">
-            <NIcon :component="CodeOutline" :size="14" style="margin-right: 4px;" />
-            YAML
-          </NRadioButton>
-        </NRadioGroup>
         <span v-if="hasModifications" class="config-editor-modified-indicator">
           {{ totalModifiedCount }} 项待保存
         </span>
@@ -278,7 +264,7 @@ function handleYamlChange(value: string) {
     </div>
 
     <div class="config-editor-content">
-      <template v-if="editorMode === 'visual'">
+      <template v-if="mode === 'visual'">
         <div class="config-editor-sidebar">
           <ConfigCategoryNav
             :categories="categoriesWithModified"

@@ -10,7 +10,14 @@ const router = createRouter({
 router.beforeEach(async (to, _from, next) => {
   const authStore = useAuthStore()
 
-  const authEnabled = await authStore.checkAuthConfig()
+  let authEnabled = false
+  try {
+    authEnabled = await authStore.checkAuthConfig()
+  } catch (error) {
+    console.error('[Router] checkAuthConfig failed:', error)
+    // 认证配置检查失败时，假设认证已禁用，允许访问
+    authEnabled = false
+  }
 
   if (!authEnabled) {
     if (to.name === 'Login') {
@@ -23,11 +30,15 @@ router.beforeEach(async (to, _from, next) => {
 
   if (to.meta.public) {
     if (to.name === 'Login' && authStore.isAuthenticated) {
-      const valid = await authStore.checkAuth()
-      if (valid) {
-        const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/'
-        next(redirect)
-        return
+      try {
+        const valid = await authStore.checkAuth()
+        if (valid) {
+          const redirect = typeof to.query.redirect === 'string' ? to.query.redirect : '/'
+          next(redirect)
+          return
+        }
+      } catch (error) {
+        console.error('[Router] checkAuth failed:', error)
       }
     }
     next()
@@ -39,8 +50,14 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
-  const valid = await authStore.checkAuth()
-  if (!valid) {
+  try {
+    const valid = await authStore.checkAuth()
+    if (!valid) {
+      next({ name: 'Login', query: { redirect: to.fullPath } })
+      return
+    }
+  } catch (error) {
+    console.error('[Router] checkAuth failed:', error)
     next({ name: 'Login', query: { redirect: to.fullPath } })
     return
   }

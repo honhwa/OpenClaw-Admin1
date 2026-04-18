@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { useHermesConnectionStore } from './connection'
-import type { HermesMessage } from '@/api/hermes/types'
+import type { HermesMessage, ModelSelection } from '@/api/hermes/types'
 
 export interface ToolCallProgress {
   toolCallId: string
@@ -39,7 +39,11 @@ export const useHermesChatStore = defineStore('hermes-chat', () => {
    */
   async function sendMessage(
     content: string,
-    options?: { model?: string; sessionId?: string },
+    options?: { 
+      model?: string
+      modelSelection?: ModelSelection
+      sessionId?: string 
+    },
   ) {
     const text = content.trim()
     if (!text) return
@@ -55,11 +59,20 @@ export const useHermesChatStore = defineStore('hermes-chat', () => {
       currentSessionId.value = options.sessionId
     }
 
+    // 确定使用的模型
+    const modelName = options?.modelSelection?.modelId || options?.model || 'hermes-agent'
+    const providerName = options?.modelSelection?.providerName
+    const baseUrl = options?.modelSelection?.baseUrl
+
     console.log('[HermesChatStore] sendMessage called:', {
       text: text.substring(0, 50),
       currentSessionId: currentSessionId.value,
       optionsSessionId: options?.sessionId,
       optionsModel: options?.model,
+      modelSelection: options?.modelSelection,
+      effectiveModel: modelName,
+      providerName,
+      baseUrl,
     })
 
     // 添加用户消息到列表
@@ -73,7 +86,6 @@ export const useHermesChatStore = defineStore('hermes-chat', () => {
 
     // 准备助手消息占位
     const assistantMessageId = `assistant-${Date.now()}`
-    const modelName = options?.model
     console.log('[HermesChatStore] Creating assistant message with model:', modelName)
     const assistantMessage: HermesMessage = {
       id: assistantMessageId,
@@ -81,6 +93,7 @@ export const useHermesChatStore = defineStore('hermes-chat', () => {
       content: '',
       timestamp: new Date().toISOString(),
       model: modelName,
+      provider: providerName,
     }
     messages.value = [...messages.value, assistantMessage]
     console.log('[HermesChatStore] Assistant message created:', assistantMessage)
@@ -109,7 +122,7 @@ export const useHermesChatStore = defineStore('hermes-chat', () => {
           }
         },
         currentSessionId.value || undefined,
-        options?.model,
+        modelName,
         // onToolCall
         (tool: any) => {
           const now = Date.now()
@@ -354,6 +367,8 @@ export const useHermesChatStore = defineStore('hermes-chat', () => {
             console.log('[HermesChatStore] Updated assistant message model:', model)
           }
         },
+        // endpointOptions
+        { providerName, baseUrl },
       )
     })
   }

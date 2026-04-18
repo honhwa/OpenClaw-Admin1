@@ -24,6 +24,7 @@ import {
   DesktopOutline,
   ArchiveOutline,
   SettingsOutline,
+  CodeSlashOutline,
 } from '@vicons/ionicons5'
 import { NIcon } from 'naive-ui'
 import { routes } from '@/router/routes'
@@ -56,6 +57,7 @@ const iconMap: Record<string, unknown> = {
   DesktopOutline,
   ArchiveOutline,
   SettingsOutline,
+  CodeSlashOutline,
 }
 
 function renderIcon(iconName: string) {

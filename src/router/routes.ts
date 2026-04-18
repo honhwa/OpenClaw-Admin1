@@ -182,7 +182,25 @@ export const routes: RouteRecordRaw[] = [
         path: 'hermes/cli',
         name: 'HermesCli',
         component: () => import('@/views/hermes/HermesCliPage.vue'),
-        meta: { titleKey: 'routes.hermesCli', icon: 'TerminalOutline', gateway: 'hermes' },
+        meta: { titleKey: 'routes.hermesCli', icon: 'CodeSlashOutline', gateway: 'hermes' },
+      },
+      {
+        path: 'hermes/terminal',
+        name: 'HermesTerminal',
+        component: () => import('@/views/hermes/HermesTerminalPage.vue'),
+        meta: { titleKey: 'routes.hermesTerminal', icon: 'TerminalOutline', gateway: 'hermes' },
+      },
+      {
+        path: 'hermes/remote-desktop',
+        name: 'HermesRemoteDesktop',
+        component: () => import('@/views/hermes/HermesRemoteDesktopPage.vue'),
+        meta: { titleKey: 'routes.hermesRemoteDesktop', icon: 'DesktopOutline', gateway: 'hermes' },
+      },
+      {
+        path: 'hermes/files',
+        name: 'HermesFiles',
+        component: () => import('@/views/hermes/HermesFilesPage.vue'),
+        meta: { titleKey: 'routes.hermesFiles', icon: 'FolderOutline', gateway: 'hermes' },
       },
       {
         path: 'hermes/system',

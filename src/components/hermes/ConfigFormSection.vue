@@ -2,7 +2,8 @@
 import { computed } from 'vue'
 import { NButton, NIcon, NEmpty } from 'naive-ui'
 import { RefreshOutline } from '@vicons/ionicons5'
-import ConfigField, { type ConfigFieldDefinition } from './ConfigField.vue'
+import ConfigField from './ConfigField.vue'
+import type { ConfigFieldSchema } from '@/api/hermes/types'
 
 export interface ConfigCategory {
   id: string
@@ -12,7 +13,7 @@ export interface ConfigCategory {
 
 const props = defineProps<{
   category: ConfigCategory | null
-  fields: ConfigFieldDefinition[]
+  fields: ConfigFieldSchema[]
   values: Record<string, unknown>
   modified: Record<string, boolean>
   disabled?: boolean

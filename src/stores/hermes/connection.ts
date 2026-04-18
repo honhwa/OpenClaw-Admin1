@@ -48,6 +48,13 @@ export const useHermesConnectionStore = defineStore('hermes-connection', () => {
   const hermesStatus = ref<HermesStatus | null>(null)
   const initializedFromBackend = ref(false)
   const hasApiKeyFromEnv = ref(false) // 标记 API Key 是否从 .env 文件加载
+  const autoStartDashboard = ref(false) // 是否自动启动 Dashboard
+  const dashboardStatus = ref<{ running: boolean; pid: number | null; port: number | null; error: string | null }>({
+    running: false,
+    pid: null,
+    port: null,
+    error: null,
+  })
 
   // ---- 内部 ----
 
@@ -89,6 +96,10 @@ export const useHermesConnectionStore = defineStore('hermes-connection', () => {
    */
   async function getClientAsync(): Promise<HermesApiClient> {
     if (!hermesConnected.value) {
+      // 确保配置已加载
+      if (!initializedFromBackend.value) {
+        await loadConfigFromBackend()
+      }
       await connect()
     }
     if (!hermesConnected.value) {
@@ -113,8 +124,12 @@ export const useHermesConnectionStore = defineStore('hermes-connection', () => {
           apiKey: '', // 不暴露实际值，后端会自动使用内存中的 API Key
         }
         hasApiKeyFromEnv.value = !!data.hasApiKey
+        autoStartDashboard.value = !!data.autoStartDashboard
+        if (data.dashboard) {
+          dashboardStatus.value = data.dashboard
+        }
         initializedFromBackend.value = true
-        console.log('[Hermes] Config loaded from backend, hasApiKey:', data.hasApiKey)
+        console.log('[Hermes] Config loaded from backend, hasApiKey:', data.hasApiKey, 'autoStart:', data.autoStartDashboard)
         
         // 自动尝试连接
         if (!hermesConnected.value && !hermesConnecting.value) {
@@ -191,6 +206,104 @@ export const useHermesConnectionStore = defineStore('hermes-connection', () => {
         ok: false, 
         error: error instanceof Error ? error.message : String(error) 
       }
+    }
+  }
+
+  /**
+   * 更新自动启动 Dashboard 设置
+   */
+  async function updateAutoStartDashboard(enabled: boolean): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const response = await fetch('/api/hermes/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoStartDashboard: enabled }),
+      })
+      const result = await response.json()
+      
+      if (result.ok) {
+        autoStartDashboard.value = enabled
+        return { ok: true }
+      }
+      
+      return { ok: false, error: result.error || 'Failed to update auto start setting' }
+    } catch (error) {
+      return { 
+        ok: false, 
+        error: error instanceof Error ? error.message : String(error) 
+      }
+    }
+  }
+
+  /**
+   * 启动 Dashboard
+   */
+  async function startDashboard(): Promise<{ ok: boolean; error?: string; pid?: number; port?: number }> {
+    try {
+      const response = await fetch('/api/hermes/dashboard/start', {
+        method: 'POST',
+      })
+      const result = await response.json()
+      
+      if (result.ok) {
+        dashboardStatus.value = {
+          running: true,
+          pid: result.pid,
+          port: result.port,
+          error: null,
+        }
+        return { ok: true, pid: result.pid, port: result.port }
+      }
+      
+      dashboardStatus.value.error = result.error
+      return { ok: false, error: result.error }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      dashboardStatus.value.error = errorMsg
+      return { ok: false, error: errorMsg }
+    }
+  }
+
+  /**
+   * 停止 Dashboard
+   */
+  async function stopDashboard(): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const response = await fetch('/api/hermes/dashboard/stop', {
+        method: 'POST',
+      })
+      const result = await response.json()
+      
+      if (result.ok) {
+        dashboardStatus.value = {
+          running: false,
+          pid: null,
+          port: null,
+          error: null,
+        }
+        return { ok: true }
+      }
+      
+      return { ok: false, error: result.error }
+    } catch (error) {
+      return { 
+        ok: false, 
+        error: error instanceof Error ? error.message : String(error) 
+      }
+    }
+  }
+
+  /**
+   * 刷新 Dashboard 状态
+   */
+  async function refreshDashboardStatus(): Promise<void> {
+    try {
+      const response = await fetch('/api/hermes/dashboard')
+      if (response.ok) {
+        dashboardStatus.value = await response.json()
+      }
+    } catch (error) {
+      console.warn('[Hermes] Failed to refresh dashboard status:', error)
     }
   }
 
@@ -310,16 +423,22 @@ export const useHermesConnectionStore = defineStore('hermes-connection', () => {
     hermesStatus,
     initializedFromBackend,
     hasApiKeyFromEnv,
+    autoStartDashboard,
+    dashboardStatus,
     // 方法
     getClient,
     getClientAsync,
     switchGateway,
     updateConnectionConfig,
     updateApiKey,
+    updateAutoStartDashboard,
     loadConfigFromBackend,
     connect,
     disconnect,
     testConnection,
     refreshStatus,
+    startDashboard,
+    stopDashboard,
+    refreshDashboardStatus,
   }
 })

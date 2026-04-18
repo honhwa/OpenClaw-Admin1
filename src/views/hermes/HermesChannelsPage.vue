@@ -539,7 +539,7 @@ const rules = {
           :model="formData"
           :rules="rules"
           label-placement="left"
-          label-width="auto"
+          label-width="100"
         >
           <NFormItem :label="t('pages.hermesChannels.form.id')" path="id">
             <NInput

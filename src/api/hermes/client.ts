@@ -230,6 +230,7 @@ export class HermesApiClient {
     abortSignal?: AbortSignal,
     onSessionId?: (sessionId: string) => void,
     onModel?: (model: string) => void,
+    endpointOptions?: { providerName?: string; baseUrl?: string },
   ): Promise<void> {
     const body: Record<string, unknown> = {
       messages,
@@ -239,6 +240,14 @@ export class HermesApiClient {
     // is what Hermes uses for session continuity
     if (sessionId) body.session_id = sessionId
     if (model) body.model = model
+
+    // 如果提供了端点信息，添加到请求体
+    if (endpointOptions?.providerName) {
+      body.provider = endpointOptions.providerName
+    }
+    if (endpointOptions?.baseUrl) {
+      body.base_url = endpointOptions.baseUrl
+    }
 
     // Build headers with X-Hermes-Session-Id for session continuity
     const headers: Record<string, string> = {
@@ -252,6 +261,9 @@ export class HermesApiClient {
       sessionId,
       headerSessionId: headers['X-Hermes-Session-Id'],
       bodySessionId: body.session_id,
+      model,
+      provider: endpointOptions?.providerName,
+      baseUrl: endpointOptions?.baseUrl,
     })
 
     let response: Response
@@ -451,16 +463,17 @@ export class HermesApiClient {
   }
 
   async setCurrentModel(modelId: string, options?: { provider?: string; baseUrl?: string }): Promise<void> {
-    const modelConfig: HermesModelConfig = { default: modelId }
-    if (options?.provider) {
-      modelConfig.provider = options.provider
-    }
-    if (options?.baseUrl) {
-      modelConfig.base_url = options.baseUrl
+    const config: Record<string, unknown> = { model: modelId }
+    if (options?.provider && options?.baseUrl) {
+      config.providers = {
+        [options.provider]: {
+          base_url: options.baseUrl,
+        },
+      }
     }
     await this.request('/config', {
       method: 'PUT',
-      body: JSON.stringify({ config: { model: modelConfig } }),
+      body: JSON.stringify({ config }),
     })
   }
 
@@ -480,24 +493,60 @@ export class HermesApiClient {
     return this.request<any>('/config/schema')
   }
 
-  async updateConfig(config: Partial<HermesConfig>): Promise<void> {
+  async updateConfig(partialConfig: Partial<HermesConfig>): Promise<void> {
+    // 先获取完整配置，再合并部分更新，确保不会丢失其他字段
+    const fullConfig = await this.getConfig()
+    const mergedConfig = this.deepMerge(fullConfig, partialConfig)
     await this.request('/config', {
       method: 'PUT',
-      body: JSON.stringify(config),
+      body: JSON.stringify({ config: mergedConfig }),
     })
+  }
+
+  private deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
+    const result = { ...target }
+    for (const key of Object.keys(source)) {
+      const sourceValue = source[key]
+      const targetValue = result[key]
+      if (
+        sourceValue !== null &&
+        typeof sourceValue === 'object' &&
+        !Array.isArray(sourceValue) &&
+        targetValue !== null &&
+        typeof targetValue === 'object' &&
+        !Array.isArray(targetValue)
+      ) {
+        result[key] = this.deepMerge(targetValue as Record<string, unknown>, sourceValue as Record<string, unknown>)
+      } else {
+        result[key] = sourceValue
+      }
+    }
+    return result
   }
 
   async getRawConfig(): Promise<string> {
     const response = await this.requestRaw('/config/raw')
-    return response.text()
+    const text = await response.text()
+    // API 返回的是 JSON 格式 {"yaml": "..."}，需要提取 yaml 字段
+    try {
+      const data = JSON.parse(text)
+      if (data && typeof data.yaml === 'string') {
+        return data.yaml
+      }
+    } catch {
+      // 如果不是 JSON，直接返回原始文本
+    }
+    return text
   }
 
-  async updateRawConfig(yaml: string): Promise<void> {
+  async updateRawConfig(yamlContent: string): Promise<void> {
+    // Hermes API 期望 JSON 格式 {"yaml_text": "..."}
+    // 注意：GET 返回 {"yaml": "..."} 但 PUT 期望 {"yaml_text": "..."}
     await this.request('/config/raw', {
       method: 'PUT',
-      body: yaml,
+      body: JSON.stringify({ yaml_text: yamlContent }),
       headers: {
-        'Content-Type': 'application/yaml',
+        'Content-Type': 'application/json',
       },
     })
   }
@@ -507,14 +556,35 @@ export class HermesApiClient {
   // --------------------------------------------------------------------------
 
   async listEnvVars(): Promise<HermesEnvVar[]> {
+    const result = await this.listEnvVarsRaw()
+    return result.vars
+  }
+
+  async listEnvVarsRaw(): Promise<{ vars: HermesEnvVar[]; raw: Record<string, unknown> }> {
     const result = await this.request<any>('/env')
-    if (Array.isArray(result)) return result
-    if (result && typeof result === 'object') {
-      if (Array.isArray(result.envVars)) return result.envVars
-      if (Array.isArray(result.data)) return result.data
-      if (Array.isArray(result.variables)) return result.variables
+    const raw: Record<string, unknown> = result && typeof result === 'object' ? result : {}
+    if (Array.isArray(result)) {
+      return { vars: result, raw }
     }
-    return []
+    if (result && typeof result === 'object') {
+      if (Array.isArray(result.envVars)) return { vars: result.envVars, raw }
+      if (Array.isArray(result.data)) return { vars: result.data, raw }
+      if (Array.isArray(result.variables)) return { vars: result.variables, raw }
+      const keys = Object.keys(result)
+      const firstKey = keys[0]
+      if (firstKey && typeof result[firstKey] === 'object') {
+        const vars = keys.map((key) => {
+          const item = result[key]
+          return {
+            key,
+            value: item.redacted_value || item.value || '',
+            masked: item.is_set === true && !!item.redacted_value,
+          }
+        })
+        return { vars, raw }
+      }
+    }
+    return { vars: [], raw }
   }
 
   async setEnvVar(key: string, value: string): Promise<void> {
@@ -641,18 +711,28 @@ export class HermesApiClient {
   // --------------------------------------------------------------------------
 
   async listPlatforms(): Promise<any[]> {
-    // No dedicated platform endpoint in backend; extract from config
     const config = await this.getConfig()
     const platforms = config.platforms
     if (!platforms || typeof platforms !== 'object') return []
     return Object.entries(platforms as Record<string, unknown>).map(([id, conf]) => {
       const c = conf as Record<string, unknown>
+      const isConfigured =
+        !!c.configured ||
+        !!c.token ||
+        !!c.apiKey ||
+        !!c.secret ||
+        !!c.appId ||
+        !!c.appSecret ||
+        !!c.corpId ||
+        !!c.agentId ||
+        !!c.clientId ||
+        !!c.clientSecret
       return {
         id,
         name: (c.name as string) || id,
         type: (c.type as string) || id,
         enabled: c.enabled !== false,
-        configured: !!c.configured || !!c.token || !!c.apiKey,
+        configured: isConfigured,
         config: c,
       }
     })

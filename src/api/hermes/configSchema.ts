@@ -8,11 +8,10 @@ export const GENERAL_FIELDS: ConfigFieldSchema[] = [
   {
     key: 'model',
     label: '模型',
-    description: '选择要使用的 AI 模型',
-    type: 'text',
+    description: '选择要使用的 AI 模型（支持字符串或对象格式）',
+    type: 'json',
     defaultValue: '',
-    placeholder: '输入模型名称',
-    validation: { required: true },
+    placeholder: '输入模型名称或配置对象',
   },
   {
     key: 'file_read_max_chars',
@@ -652,7 +651,7 @@ export const DEFAULT_HERMES_CONFIG_SCHEMA: HermesConfigSchema = {
 export const CONFIG_FIELD_MAP: Record<string, ConfigFieldSchema> = (() => {
   const map: Record<string, ConfigFieldSchema> = {}
   for (const category of DEFAULT_CONFIG_CATEGORIES) {
-    for (const field of category.fields) {
+    for (const field of category.fields || []) {
       map[field.key] = field
     }
   }
@@ -667,6 +666,6 @@ export const getConfigCategory = (id: string): ConfigCategory | undefined => {
   return DEFAULT_CONFIG_CATEGORIES.find(cat => cat.id === id)
 }
 
-export const getDefaultValue = (key: string): string | number | boolean | undefined => {
+export const getDefaultValue = (key: string): unknown => {
   return CONFIG_FIELD_MAP[key]?.defaultValue
 }

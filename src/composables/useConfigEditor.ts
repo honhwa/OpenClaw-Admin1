@@ -213,7 +213,7 @@ export function useConfigEditor(options: UseConfigEditorOptions = {}) {
     if (!schema?.categories) return undefined
 
     for (const category of schema.categories) {
-      const field = category.fields.find(f => f.key === key)
+      const field = (category.fields || []).find(f => f.key === key)
       if (field) return field
     }
     return undefined

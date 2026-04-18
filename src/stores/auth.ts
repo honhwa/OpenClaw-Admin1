@@ -8,6 +8,7 @@ export const useAuthStore = defineStore('auth', () => {
   const authEnabled = ref(true)
   const loading = ref(false)
   const error = ref<string | null>(null)
+  const configLoaded = ref(false)
 
   const isAuthenticated = computed(() => !!token.value)
 
@@ -20,14 +21,24 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function checkAuthConfig() {
+  async function checkAuthConfig(forceRefresh = false) {
+    if (configLoaded.value && !forceRefresh) {
+      return authEnabled.value
+    }
+    
     try {
-      const response = await fetch('/api/auth/config')
+      const response = await fetch('/api/auth/config', {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
       const data = await response.json()
-      authEnabled.value = data.enabled
-      return data.enabled
+      authEnabled.value = !!data.enabled
+      configLoaded.value = true
+      return authEnabled.value
     } catch {
       authEnabled.value = false
+      configLoaded.value = true
       return false
     }
   }

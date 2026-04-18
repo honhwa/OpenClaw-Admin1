@@ -3,6 +3,7 @@ import http from 'http'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { execSync, spawn } from 'child_process'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -84,6 +85,165 @@ let hermesConfig = {
   webUrl: '',
   apiUrl: '',
   apiKey: '',
+  autoStartDashboard: false,
+}
+
+// Dashboard 进程管理
+let dashboardProcess = null
+let dashboardStatus = {
+  running: false,
+  pid: null,
+  port: null,
+  error: null,
+}
+
+// 查找 Hermes CLI 路径（支持 Windows 和 Linux）
+function findHermesPath() {
+  const homeDir = process.env.HOME || process.env.USERPROFILE || ''
+  const possiblePaths = []
+
+  if (process.platform === 'win32') {
+    possiblePaths.push(
+      path.join(homeDir, 'hermes-agent', '.venv', 'Scripts', 'hermes.exe'),
+      path.join(homeDir, '.local', 'bin', 'hermes.exe'),
+      'C:\\hermes-agent\\.venv\\Scripts\\hermes.exe',
+      path.join(__dirname, '..', 'node_modules', '.bin', 'hermes.cmd'),
+      path.join(__dirname, '..', 'node_modules', '.bin', 'hermes.exe')
+    )
+  } else {
+    possiblePaths.push(
+      path.join(homeDir, '.local', 'bin', 'hermes'),
+      path.join(homeDir, 'hermes-agent', '.venv', 'bin', 'hermes'),
+      '/usr/local/bin/hermes',
+      '/usr/bin/hermes',
+      '/data/user/work/hermes-agent/.venv/bin/hermes',
+      path.join(__dirname, '..', 'node_modules', '.bin', 'hermes')
+    )
+  }
+
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      try {
+        const stat = fs.statSync(p)
+        if (stat.isFile() || stat.isSymbolicLink()) {
+          console.log(`[Hermes] Found hermes at: ${p}`)
+          return p
+        }
+      } catch {}
+    }
+  }
+
+  // 尝试使用 which/where 命令查找
+  try {
+    const whichCmd = process.platform === 'win32' ? 'where' : 'which'
+    const result = execSync(`${whichCmd} hermes`, { encoding: 'utf8', timeout: 5000 }).trim()
+    if (result) {
+      const foundPath = result.split('\n')[0]?.trim()
+      if (foundPath && fs.existsSync(foundPath)) {
+        console.log(`[Hermes] Found hermes via ${whichCmd}: ${foundPath}`)
+        return foundPath
+      }
+    }
+  } catch {}
+
+  return null
+}
+
+// 启动 Hermes Dashboard
+function startDashboard() {
+  if (dashboardProcess) {
+    console.log('[Hermes] Dashboard already running')
+    return { ok: true, message: 'Dashboard already running', pid: dashboardStatus.pid }
+  }
+
+  try {
+    // 查找 hermes CLI 路径
+    const hermesPath = findHermesPath()
+    if (!hermesPath) {
+      dashboardStatus.error = 'Hermes CLI not found. Please install hermes-agent first.'
+      console.error('[Hermes]', dashboardStatus.error)
+      return { ok: false, error: dashboardStatus.error }
+    }
+
+    // 从 webUrl 提取端口
+    const webUrl = hermesConfig.webUrl || 'http://localhost:9119'
+    const webUrlObj = new URL(webUrl)
+    const port = parseInt(webUrlObj.port) || 9119
+
+    console.log(`[Hermes] Starting dashboard on port ${port} using: ${hermesPath}`)
+
+    // 启动 hermes dashboard
+    dashboardProcess = spawn(hermesPath, ['dashboard', '--port', String(port)], {
+      cwd: path.join(__dirname, '..'),
+      env: { ...process.env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: false,
+      shell: process.platform === 'win32', // Windows 需要 shell
+    })
+
+    dashboardProcess.on('error', (err) => {
+      console.error('[Hermes] Dashboard process error:', err.message)
+      dashboardStatus.running = false
+      dashboardStatus.pid = null
+      dashboardStatus.error = err.message
+      dashboardProcess = null
+    })
+
+    dashboardProcess.on('exit', (code, signal) => {
+      console.log(`[Hermes] Dashboard process exited: code=${code}, signal=${signal}`)
+      dashboardStatus.running = false
+      dashboardStatus.pid = null
+      dashboardProcess = null
+    })
+
+    dashboardProcess.stdout.on('data', (data) => {
+      console.log('[Hermes Dashboard]', data.toString().trim())
+    })
+
+    dashboardProcess.stderr.on('data', (data) => {
+      console.error('[Hermes Dashboard]', data.toString().trim())
+    })
+
+    dashboardStatus.running = true
+    dashboardStatus.pid = dashboardProcess.pid
+    dashboardStatus.port = port
+    dashboardStatus.error = null
+
+    return { ok: true, pid: dashboardProcess.pid, port }
+  } catch (err) {
+    dashboardStatus.error = err.message
+    console.error('[Hermes] Failed to start dashboard:', err.message)
+    return { ok: false, error: err.message }
+  }
+}
+
+// 停止 Hermes Dashboard
+function stopDashboard() {
+  if (!dashboardProcess) {
+    console.log('[Hermes] Dashboard not running')
+    return { ok: true, message: 'Dashboard not running' }
+  }
+
+  try {
+    console.log('[Hermes] Stopping dashboard...')
+    dashboardProcess.kill('SIGTERM')
+    dashboardProcess = null
+    dashboardStatus.running = false
+    dashboardStatus.pid = null
+    dashboardStatus.port = null
+    return { ok: true, message: 'Dashboard stopped' }
+  } catch (err) {
+    console.error('[Hermes] Failed to stop dashboard:', err.message)
+    return { ok: false, error: err.message }
+  }
+}
+
+// 获取 Dashboard 状态
+function getDashboardStatus() {
+  return {
+    ...dashboardStatus,
+    running: dashboardProcess !== null && dashboardStatus.running,
+  }
 }
 
 // Dashboard 会话 Token 缓存
@@ -248,7 +408,16 @@ export function initHermesConfig(envConfig) {
   hermesConfig.webUrl = envFile.HERMES_WEB_URL || envConfig.HERMES_WEB_URL || 'http://localhost:9119'
   hermesConfig.apiUrl = envFile.HERMES_API_URL || envConfig.HERMES_API_URL || 'http://localhost:8642'
   hermesConfig.apiKey = envFile.HERMES_API_KEY || envConfig.HERMES_API_KEY || ''
-  console.log(`[Hermes] Proxy initialized: web=${hermesConfig.webUrl}, api=${hermesConfig.apiUrl}`)
+  hermesConfig.autoStartDashboard = envFile.HERMES_AUTO_START_DASHBOARD === 'true'
+  console.log(`[Hermes] Proxy initialized: web=${hermesConfig.webUrl}, api=${hermesConfig.apiUrl}, autoStart=${hermesConfig.autoStartDashboard}`)
+  
+  // 如果设置了自动启动，则启动 Dashboard
+  if (hermesConfig.autoStartDashboard) {
+    setTimeout(() => {
+      console.log('[Hermes] Auto-starting dashboard...')
+      startDashboard()
+    }, 2000) // 延迟 2 秒启动，确保服务器已完全启动
+  }
 }
 
 function debug(...args) {
@@ -336,6 +505,13 @@ async function proxyRequest(req, res, targetBaseUrl, path) {
     }
 
     const headers = buildProxyHeaders(req, targetBaseUrl, token)
+    
+    // 如果有请求体，设置正确的 Content-Length
+    const bodyStr = req.body && Object.keys(req.body).length > 0 ? JSON.stringify(req.body) : ''
+    if (bodyStr) {
+      headers['Content-Length'] = Buffer.byteLength(bodyStr)
+    }
+    
     const options = {
       hostname: targetUrl.hostname,
       port: targetUrl.port,
@@ -382,8 +558,8 @@ async function proxyRequest(req, res, targetBaseUrl, path) {
     })
 
     // 转发请求体（如果有）
-    if (req.body && Object.keys(req.body).length > 0) {
-      proxyReq.write(JSON.stringify(req.body))
+    if (bodyStr) {
+      proxyReq.write(bodyStr)
     }
     proxyReq.end()
   })
@@ -531,18 +707,158 @@ async function proxySSEStream(req, res, targetBaseUrl, path) {
 // 应用认证中间件到所有 Hermes API 路由
 router.use(authWrapper)
 
+// 代理获取外部 API 模型列表
+router.post('/api/hermes/fetch-models', async (req, res) => {
+  const { baseUrl, apiKey, providerId, providerConfig } = req.body || {}
+
+  console.log('[Hermes] Fetch models request:', { baseUrl, providerId, hasApiKey: !!apiKey })
+
+  if (!baseUrl && !providerConfig?.defaultBaseUrl) {
+    return res.status(400).json({ error: 'baseUrl is required' })
+  }
+
+  try {
+    // 获取渠道商配置
+    const config = providerConfig || {}
+    const baseApiUrl = (baseUrl || config.defaultBaseUrl || '').replace(/\/+$/, '')
+    const modelsApiPath = config.modelsApiPath || '/v1/models'
+    const authType = config.modelsApiAuthType || 'bearer'
+    const extraHeaders = config.modelsApiExtraHeaders || {}
+    const queryParam = config.modelsApiQueryParam || 'key'
+
+    // 构建请求 URL - 智能处理路径拼接
+    let url = baseApiUrl
+    
+    // 如果 modelsApiPath 是完整 URL（以 http 开头），直接使用
+    if (modelsApiPath.startsWith('http')) {
+      url = modelsApiPath
+    } else {
+      // 规范化路径
+      const normalizedPath = modelsApiPath.startsWith('/') ? modelsApiPath : `/${modelsApiPath}`
+      
+      // 检查 baseUrl 是否已经包含了目标路径
+      // 例如: baseUrl = "https://api.openai.com/v1", path = "/models" -> "https://api.openai.com/v1/models"
+      // 例如: baseUrl = "https://api.openai.com/v1/models", path = "/models" -> 不再添加
+      if (!url.endsWith(normalizedPath)) {
+        // 检查是否路径已经部分包含
+        // 例如: baseUrl = "https://api.anthropic.com", path = "/v1/models" -> "https://api.anthropic.com/v1/models"
+        // 例如: baseUrl = "https://api.anthropic.com/v1", path = "/v1/models" -> "https://api.anthropic.com/v1/models" (需要去重)
+        
+        const pathParts = normalizedPath.split('/').filter(p => p)
+        let finalUrl = url
+        
+        for (const part of pathParts) {
+          // 检查 URL 是否已经以这个部分结尾
+          if (!finalUrl.endsWith(`/${part}`) && !finalUrl.endsWith(`/${part}/`)) {
+            finalUrl = `${finalUrl}/${part}`
+          }
+        }
+        
+        url = finalUrl
+      }
+    }
+
+    // 构建请求头
+    const headers = {
+      'Content-Type': 'application/json',
+    }
+
+    // 根据认证类型设置认证
+    if (authType === 'bearer' && apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`
+    } else if (authType === 'x-api-key' && apiKey) {
+      headers['x-api-key'] = apiKey
+    } else if (authType === 'query' && apiKey) {
+      url = `${url}?${queryParam}=${apiKey}`
+    }
+    // authType === 'none' 时不添加认证
+
+    // 添加额外头
+    Object.assign(headers, extraHeaders)
+
+    console.log(`[Hermes] Fetching models from: ${url}`)
+    console.log(`[Hermes] Auth type: ${authType}, Extra headers:`, Object.keys(extraHeaders))
+
+    const response = await fetch(url, { headers })
+
+    console.log(`[Hermes] Response status: ${response.status} ${response.statusText}`)
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`[Hermes] Fetch models failed: ${response.status}`, errorText.substring(0, 500))
+      return res.status(response.status).json({
+        error: `HTTP ${response.status}`,
+        message: errorText.substring(0, 500),
+        url: url
+      })
+    }
+
+    // 检查是否是 JSON 响应
+    const contentType = response.headers.get('content-type')
+    if (!contentType || !contentType.includes('application/json')) {
+      const errorText = await response.text()
+      console.error(`[Hermes] Non-JSON response:`, errorText.substring(0, 500))
+      return res.status(500).json({
+        error: 'Invalid response',
+        message: 'API 返回非 JSON 格式的响应，请检查 Base URL 是否正确',
+        url: url,
+        contentType
+      })
+    }
+
+    const data = await response.json()
+    
+    // 处理不同格式的响应
+    let models = []
+    if (Array.isArray(data.data)) {
+      // OpenAI 格式: { data: [...] }
+      models = data.data
+    } else if (Array.isArray(data.models)) {
+      // Google Gemini 格式: { models: [...] }
+      models = data.models
+    } else if (Array.isArray(data)) {
+      // 直接返回数组
+      models = data
+    }
+
+    // 标准化模型数据
+    const result = models.map(m => {
+      // Google Gemini 的模型名称格式是 "models/gemini-pro"
+      let id = m.id || m.name || m
+      if (typeof id === 'string' && id.startsWith('models/')) {
+        id = id.replace('models/', '')
+      }
+      return {
+        id: id,
+        name: m.display_name || m.name || m.id || id,
+      }
+    })
+
+    console.log(`[Hermes] Fetched ${result.length} models from ${baseApiUrl}`)
+    res.json({ models: result })
+  } catch (error) {
+    console.error('[Hermes] Fetch models error:', error)
+    res.status(500).json({
+      error: 'Failed to fetch models',
+      message: error.message
+    })
+  }
+})
+
 // 获取当前连接配置
 router.get('/api/hermes/connect', (req, res) => {
   res.json({
     webUrl: hermesConfig.webUrl,
     apiUrl: hermesConfig.apiUrl,
     hasApiKey: !!hermesConfig.apiKey,
+    autoStartDashboard: hermesConfig.autoStartDashboard,
+    dashboard: getDashboardStatus(),
   })
 })
 
 // 设置连接参数
 router.post('/api/hermes/connect', (req, res) => {
-  const { webUrl, apiUrl, apiKey } = req.body || {}
+  const { webUrl, apiUrl, apiKey, autoStartDashboard } = req.body || {}
 
   if (webUrl) {
     hermesConfig.webUrl = webUrl
@@ -556,9 +872,13 @@ router.post('/api/hermes/connect', (req, res) => {
     hermesConfig.apiKey = apiKey
     updateEnvVar('HERMES_API_KEY', apiKey)
   }
+  if (autoStartDashboard !== undefined) {
+    hermesConfig.autoStartDashboard = autoStartDashboard
+    updateEnvVar('HERMES_AUTO_START_DASHBOARD', autoStartDashboard ? 'true' : 'false')
+  }
 
-  console.log(`[Hermes] Connection updated: web=${hermesConfig.webUrl}, api=${hermesConfig.apiUrl}`)
-  res.json({ ok: true, webUrl: hermesConfig.webUrl, apiUrl: hermesConfig.apiUrl })
+  console.log(`[Hermes] Connection updated: web=${hermesConfig.webUrl}, api=${hermesConfig.apiUrl}, autoStart=${hermesConfig.autoStartDashboard}`)
+  res.json({ ok: true, webUrl: hermesConfig.webUrl, apiUrl: hermesConfig.apiUrl, autoStartDashboard: hermesConfig.autoStartDashboard })
 })
 
 // 更新 API Key（专用接口，支持验证）
@@ -615,6 +935,28 @@ router.post('/api/hermes/api-key', async (req, res) => {
 
   console.log('[Hermes] API Key updated')
   res.json({ ok: true, message: 'API Key updated successfully' })
+})
+
+// Dashboard 管理 API
+// 获取 Dashboard 状态
+router.get('/api/hermes/dashboard', (req, res) => {
+  res.json(getDashboardStatus())
+})
+
+// 启动 Dashboard
+router.post('/api/hermes/dashboard/start', (req, res) => {
+  const result = startDashboard()
+  if (result.ok) {
+    res.json(result)
+  } else {
+    res.status(500).json(result)
+  }
+})
+
+// 停止 Dashboard
+router.post('/api/hermes/dashboard/stop', (req, res) => {
+  const result = stopDashboard()
+  res.json(result)
 })
 
 // 测试连接

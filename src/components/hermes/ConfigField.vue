@@ -9,22 +9,12 @@ import {
   NIcon,
 } from 'naive-ui'
 import { InformationCircleOutline } from '@vicons/ionicons5'
+import type { ConfigFieldSchema } from '@/api/hermes/types'
 
-export interface ConfigFieldDefinition {
-  key: string
-  label?: string
-  type: 'text' | 'number' | 'boolean' | 'select' | 'textarea'
-  description?: string
-  placeholder?: string
-  default?: unknown
-  options?: Array<{ label: string, value: string | number }>
-  min?: number
-  max?: number
-  required?: boolean
-}
+export type ConfigFieldDefinition = ConfigFieldSchema
 
 const props = defineProps<{
-  field: ConfigFieldDefinition
+  field: ConfigFieldSchema
   value: unknown
   modified?: boolean
   disabled?: boolean
@@ -39,7 +29,10 @@ const fieldLabel = computed(() => {
 })
 
 const selectOptions = computed(() => {
-  return props.field.options || []
+  return (props.field.options || []).map(opt => ({
+    label: opt.label,
+    value: typeof opt.value === 'boolean' ? String(opt.value) : opt.value as string | number,
+  }))
 })
 
 const hasDescription = computed(() => {
@@ -47,7 +40,7 @@ const hasDescription = computed(() => {
 })
 
 function handleTextChange(v: string) {
-  emit('update:value', v || props.field.default || null)
+  emit('update:value', v || props.field.defaultValue || null)
 }
 
 function handleNumberChange(v: number | null) {
@@ -63,7 +56,31 @@ function handleSelectChange(v: string | number | null) {
 }
 
 function handleTextareaChange(v: string) {
-  emit('update:value', v || props.field.default || null)
+  emit('update:value', v || props.field.defaultValue || null)
+}
+
+const jsonDisplayValue = computed(() => {
+  const v = props.value
+  if (v === null || v === undefined) return ''
+  if (typeof v === 'string') return v
+  try {
+    return JSON.stringify(v, null, 2)
+  } catch {
+    return String(v)
+  }
+})
+
+function handleJsonChange(v: string) {
+  if (!v.trim()) {
+    emit('update:value', props.field.defaultValue || null)
+    return
+  }
+  try {
+    const parsed = JSON.parse(v)
+    emit('update:value', parsed)
+  } catch {
+    emit('update:value', v)
+  }
 }
 </script>
 
@@ -72,7 +89,7 @@ function handleTextareaChange(v: string) {
     <div class="config-field-header">
       <label class="config-field-label">
         {{ fieldLabel }}
-        <span v-if="field.required" class="config-field-required">*</span>
+        <span v-if="field.validation?.required" class="config-field-required">*</span>
       </label>
       <div class="config-field-header-actions">
         <span v-if="modified" class="config-field-modified-badge">已修改</span>
@@ -89,7 +106,7 @@ function handleTextareaChange(v: string) {
       <template v-if="field.type === 'text'">
         <NInput
           :value="(value as string) ?? ''"
-          :placeholder="field.placeholder || String(field.default ?? '')"
+          :placeholder="field.placeholder || String(field.defaultValue ?? '')"
           :disabled="disabled"
           @update:value="handleTextChange"
         />
@@ -98,9 +115,9 @@ function handleTextareaChange(v: string) {
       <template v-else-if="field.type === 'number'">
         <NInputNumber
           :value="(value as number) ?? null"
-          :placeholder="field.placeholder || String(field.default ?? '')"
-          :min="field.min"
-          :max="field.max"
+          :placeholder="field.placeholder || String(field.defaultValue ?? '')"
+          :min="field.validation?.min"
+          :max="field.validation?.max"
           :disabled="disabled"
           clearable
           @update:value="handleNumberChange"
@@ -129,10 +146,22 @@ function handleTextareaChange(v: string) {
         <NInput
           type="textarea"
           :value="(value as string) ?? ''"
-          :placeholder="field.placeholder || String(field.default ?? '')"
+          :placeholder="field.placeholder || String(field.defaultValue ?? '')"
           :disabled="disabled"
           :rows="3"
           @update:value="handleTextareaChange"
+        />
+      </template>
+
+      <template v-else-if="field.type === 'json'">
+        <NInput
+          type="textarea"
+          :value="jsonDisplayValue"
+          :placeholder="'JSON 格式'"
+          :disabled="disabled"
+          :rows="4"
+          class="config-field-json"
+          @update:value="handleJsonChange"
         />
       </template>
     </div>
@@ -237,5 +266,11 @@ function handleTextareaChange(v: string) {
 
 [data-theme='dark'] .config-field:hover {
   background: var(--bg-card);
+}
+
+.config-field-json :deep(textarea) {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

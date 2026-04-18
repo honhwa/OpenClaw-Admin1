@@ -28,7 +28,12 @@ export const useHermesConfigStore = defineStore('hermes-config', () => {
 
     try {
       const client = await connStore.getClientAsync()
-      config.value = await client.getConfig()
+      if (!client) {
+        throw new Error('Hermes 客户端未初始化')
+      }
+      const result = await client.getConfig()
+      console.log('[HermesConfigStore] fetchConfig success:', result ? 'got config' : 'null result')
+      config.value = result
     } catch (error) {
       config.value = null
       lastError.value = error instanceof Error ? error.message : String(error)

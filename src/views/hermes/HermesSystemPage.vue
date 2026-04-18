@@ -18,6 +18,7 @@ import {
   NTag,
   NText,
   NRadioGroup,
+  NRadio,
   NRadioButton,
   NTooltip,
   NUpload,
@@ -45,7 +46,9 @@ import { useHermesConfigStore } from '@/stores/hermes/config'
 import { useConfigEditor } from '@/composables/useConfigEditor'
 import ConfigEditorPanel from '@/components/hermes/ConfigEditorPanel.vue'
 import { DEFAULT_HERMES_CONFIG_SCHEMA } from '@/api/hermes/configSchema'
-import type { HermesEnvVar, HermesConfig } from '@/api/hermes/types'
+import { generateDynamicSchema } from '@/api/hermes/dynamicSchema'
+import type { HermesEnvVar, HermesConfig, ConfigFieldSchema } from '@/api/hermes/types'
+import * as yaml from 'js-yaml'
 
 const { t } = useI18n()
 const connectionStore = useHermesConnectionStore()
@@ -61,7 +64,10 @@ const connForm = ref({
   webUrl: connectionStore.connectionConfig.webUrl,
   apiUrl: connectionStore.connectionConfig.apiUrl,
   apiKey: connectionStore.connectionConfig.apiKey,
+  autoStartDashboard: connectionStore.autoStartDashboard,
 })
+
+const dashboardLoading = ref(false)
 
 // Environment variables
 const envVars = ref<HermesEnvVar[]>([])
@@ -81,6 +87,7 @@ const configSaving = ref(false)
 const configValues = ref<HermesConfig>({})
 const originalConfigValues = ref<HermesConfig>({})
 const yamlConfig = ref('')
+const originalYamlConfig = ref('')
 
 // Raw config editor
 const rawConfig = ref('')
@@ -97,10 +104,14 @@ const filteredEnvVars = computed(() => {
   )
 })
 
-// Computed: config modifications
+// Computed: config modifications (深度比较)
 const configModifiedFields = computed(() => {
   const modified = new Set<string>()
-  for (const key of Object.keys(configValues.value)) {
+  const allKeys = new Set([
+    ...Object.keys(configValues.value),
+    ...Object.keys(originalConfigValues.value),
+  ])
+  for (const key of allKeys) {
     const current = configValues.value[key]
     const original = originalConfigValues.value[key]
     if (JSON.stringify(current) !== JSON.stringify(original)) {
@@ -110,15 +121,20 @@ const configModifiedFields = computed(() => {
   return modified
 })
 
-const hasConfigChanges = computed(() => configModifiedFields.value.size > 0)
+const hasConfigChanges = computed(() => {
+  if (configMode.value === 'yaml') {
+    return yamlConfig.value !== originalYamlConfig.value
+  }
+  return configModifiedFields.value.size > 0
+})
 
 const configModifiedCount = computed(() => configModifiedFields.value.size)
 
-// Computed: JSON validation
+// Computed: YAML validation
 const yamlConfigValid = computed(() => {
   if (!yamlConfig.value.trim()) return true
   try {
-    JSON.parse(yamlConfig.value)
+    yaml.load(yamlConfig.value)
     return true
   } catch {
     return false
@@ -128,11 +144,108 @@ const yamlConfigValid = computed(() => {
 const yamlConfigError = computed(() => {
   if (!yamlConfig.value.trim()) return ''
   try {
-    JSON.parse(yamlConfig.value)
+    yaml.load(yamlConfig.value)
     return ''
   } catch (e) {
-    return e instanceof Error ? e.message : 'Invalid JSON'
+    return e instanceof Error ? e.message : 'Invalid YAML'
   }
+})
+
+const yamlLines = computed(() => {
+  const lines = yamlConfig.value.split('\n')
+  // 如果最后一行是空行，移除它
+  if (lines.length > 0 && lines[lines.length - 1] === '') {
+    return lines.slice(0, -1)
+  }
+  return lines
+})
+
+const dynamicConfigSchema = computed(() => {
+  if (!configValues.value || Object.keys(configValues.value).length === 0) {
+    return {
+      categories: DEFAULT_HERMES_CONFIG_SCHEMA.categories.map(cat => ({
+        id: cat.id,
+        name: cat.label,
+        icon: cat.icon,
+        description: cat.description,
+      })),
+      fields: Object.fromEntries(
+        DEFAULT_HERMES_CONFIG_SCHEMA.categories.map(cat => [
+          cat.id,
+          (cat.fields || []).map(field => ({
+            key: field.key,
+            label: field.label,
+            description: field.description,
+            type: field.type,
+            defaultValue: field.defaultValue,
+            placeholder: field.placeholder,
+            options: field.options?.map(opt => ({
+              label: opt.label,
+              value: opt.value as string | number,
+            })),
+            validation: field.validation,
+            unit: field.unit,
+          })),
+        ])
+      ),
+    }
+  }
+  
+  const dynamicSchema = generateDynamicSchema(configValues.value as Record<string, unknown>)
+  
+  const staticCategories = DEFAULT_HERMES_CONFIG_SCHEMA.categories.map(cat => ({
+    id: cat.id,
+    name: cat.label,
+    icon: cat.icon,
+    description: cat.description,
+  }))
+  
+  const staticFields = Object.fromEntries(
+    DEFAULT_HERMES_CONFIG_SCHEMA.categories.map(cat => [
+      cat.id,
+      (cat.fields || []).map(field => ({
+        key: field.key,
+        label: field.label,
+        description: field.description,
+        type: field.type,
+        defaultValue: field.defaultValue,
+        placeholder: field.placeholder,
+        options: field.options?.map(opt => ({
+          label: opt.label,
+          value: opt.value as string | number,
+        })),
+        validation: field.validation,
+        unit: field.unit,
+      })),
+    ])
+  )
+  
+  const mergedCategories = [...staticCategories]
+  const mergedFields: Record<string, ConfigFieldSchema[]> = { ...staticFields }
+  
+  for (const category of dynamicSchema.categories) {
+    if (!mergedCategories.find(c => c.id === category.id)) {
+      mergedCategories.push({
+        id: category.id,
+        name: category.label,
+        icon: category.icon,
+        description: category.description,
+      })
+      mergedFields[category.id] = dynamicSchema.fields[category.id] || []
+    } else {
+      const existingFields = [...(mergedFields[category.id] || [])]
+      const existingKeys = new Set(existingFields.map(f => f.key))
+      
+      for (const field of dynamicSchema.fields[category.id] || []) {
+        if (!existingKeys.has(field.key)) {
+          existingFields.push(field)
+        }
+      }
+      mergedFields[category.id] = existingFields
+    }
+  }
+  
+  return { categories: mergedCategories, fields: mergedFields }
 })
 
 // Computed: connection status info
@@ -152,6 +265,32 @@ const connectionStatusType = computed(() => {
   return 'error' as const
 })
 
+const uptimeDisplay = computed(() => {
+  const updatedAt = status.value?.gateway_updated_at
+  if (!updatedAt) return '-'
+  try {
+    const startTime = new Date(updatedAt).getTime()
+    const now = Date.now()
+    const uptimeSeconds = Math.floor((now - startTime) / 1000)
+    if (uptimeSeconds < 0) return '-'
+    return formatUptime(uptimeSeconds)
+  } catch {
+    return '-'
+  }
+})
+
+const platformDisplay = computed(() => {
+  if (status.value?.platform) {
+    return status.value.platform
+  }
+  const gatewayPlatforms = status.value?.gateway_platforms
+  if (gatewayPlatforms && Object.keys(gatewayPlatforms).length > 0) {
+    const platforms = Object.keys(gatewayPlatforms)
+    return platforms.length === 1 ? platforms[0] : `${platforms.length} 个平台`
+  }
+  return null
+})
+
 function formatUptime(seconds: number): string {
   const days = Math.floor(seconds / 86400)
   const hours = Math.floor((seconds % 86400) / 3600)
@@ -168,14 +307,38 @@ onMounted(async () => {
     webUrl: connectionStore.connectionConfig.webUrl,
     apiUrl: connectionStore.connectionConfig.apiUrl,
     apiKey: '', // 不显示实际值，用户输入新值才会更新
+    autoStartDashboard: connectionStore.autoStartDashboard,
   }
   
-  // 尝试加载配置（连接失败时会静默失败）
-  await configStore.fetchConfig()
-  if (configStore.config) {
-    configValues.value = { ...configStore.config }
-    originalConfigValues.value = { ...configStore.config }
-    yamlConfig.value = JSON.stringify(configStore.config, null, 2)
+  // 先加载原始 YAML 配置，解析出完整配置
+  try {
+    await configStore.fetchRawConfig()
+    if (configStore.rawConfig) {
+      yamlConfig.value = configStore.rawConfig
+      originalYamlConfig.value = configStore.rawConfig
+      // 从 YAML 解析完整配置对象
+      try {
+        const parsedConfig = yaml.load(configStore.rawConfig) as Record<string, unknown>
+        configValues.value = JSON.parse(JSON.stringify(parsedConfig))
+        originalConfigValues.value = JSON.parse(JSON.stringify(parsedConfig))
+      } catch (parseErr) {
+        console.warn('[HermesSystemPage] Failed to parse YAML:', parseErr)
+        // 解析失败时使用 API 返回的 JSON
+        await configStore.fetchConfig()
+        if (configStore.config) {
+          configValues.value = JSON.parse(JSON.stringify(configStore.config))
+          originalConfigValues.value = JSON.parse(JSON.stringify(configStore.config))
+        }
+      }
+    }
+  } catch {
+    // 如果获取原始 YAML 失败，使用 API 返回的 JSON
+    await configStore.fetchConfig()
+    if (configStore.config) {
+      configValues.value = JSON.parse(JSON.stringify(configStore.config))
+      originalConfigValues.value = JSON.parse(JSON.stringify(configStore.config))
+      yamlConfig.value = JSON.stringify(configStore.config, null, 2)
+    }
   }
 })
 
@@ -195,6 +358,11 @@ async function handleSaveConnection() {
         message.error(t('pages.hermesSystem.apiKeyUpdateFailed') + ': ' + result.error)
         return
       }
+    }
+    
+    // 更新自动启动 Dashboard 设置
+    if (connForm.value.autoStartDashboard !== connectionStore.autoStartDashboard) {
+      await connectionStore.updateAutoStartDashboard(connForm.value.autoStartDashboard)
     }
     
     // 更新其他连接配置
@@ -227,6 +395,38 @@ async function handleTestConnection() {
   }
 }
 
+async function handleStartDashboard() {
+  dashboardLoading.value = true
+  try {
+    const result = await connectionStore.startDashboard()
+    if (result.ok) {
+      message.success(t('pages.hermesSystem.dashboard.startSuccess'))
+    } else {
+      message.error(t('pages.hermesSystem.dashboard.startFailed') + ': ' + result.error)
+    }
+  } catch {
+    message.error(t('pages.hermesSystem.dashboard.startFailed'))
+  } finally {
+    dashboardLoading.value = false
+  }
+}
+
+async function handleStopDashboard() {
+  dashboardLoading.value = true
+  try {
+    const result = await connectionStore.stopDashboard()
+    if (result.ok) {
+      message.success(t('pages.hermesSystem.dashboard.stopSuccess'))
+    } else {
+      message.error(t('pages.hermesSystem.dashboard.stopFailed') + ': ' + result.error)
+    }
+  } catch {
+    message.error(t('pages.hermesSystem.dashboard.stopFailed'))
+  } finally {
+    dashboardLoading.value = false
+  }
+}
+
 async function handleTabChange(tab: string) {
   if (tab === 'env' && envVars.value.length === 0) {
     await loadEnvVars()
@@ -253,11 +453,36 @@ async function loadEnvVars() {
 async function loadConfig() {
   configLoading.value = true
   try {
-    await configStore.fetchConfig()
-    if (configStore.config) {
-      configValues.value = { ...configStore.config }
-      originalConfigValues.value = { ...configStore.config }
-      yamlConfig.value = JSON.stringify(configStore.config, null, 2)
+    // 先加载原始 YAML 配置，解析出完整配置
+    try {
+      await configStore.fetchRawConfig()
+      if (configStore.rawConfig) {
+        yamlConfig.value = configStore.rawConfig
+        originalYamlConfig.value = configStore.rawConfig
+        // 从 YAML 解析完整配置对象
+        try {
+          const parsedConfig = yaml.load(configStore.rawConfig) as Record<string, unknown>
+          configValues.value = JSON.parse(JSON.stringify(parsedConfig))
+          originalConfigValues.value = JSON.parse(JSON.stringify(parsedConfig))
+        } catch (parseErr) {
+          console.warn('[HermesSystemPage] Failed to parse YAML:', parseErr)
+          // 解析失败时使用 API 返回的 JSON
+          await configStore.fetchConfig()
+          if (configStore.config) {
+            configValues.value = JSON.parse(JSON.stringify(configStore.config))
+            originalConfigValues.value = JSON.parse(JSON.stringify(configStore.config))
+          }
+        }
+      }
+    } catch {
+      // 如果获取原始 YAML 失败，使用 API 返回的 JSON
+      await configStore.fetchConfig()
+      if (configStore.config) {
+        configValues.value = JSON.parse(JSON.stringify(configStore.config))
+        originalConfigValues.value = JSON.parse(JSON.stringify(configStore.config))
+        yamlConfig.value = JSON.stringify(configStore.config, null, 2)
+        originalYamlConfig.value = yamlConfig.value
+      }
     }
   } catch {
     message.error(t('pages.hermesSystem.rawConfigLoadFailed'))
@@ -273,22 +498,32 @@ async function handleSaveConfig() {
   }
   configSaving.value = true
   try {
-    // 将扁平的键转换为嵌套的对象结构
-    const changes: Record<string, unknown> = {}
-    configModifiedFields.value.forEach(key => {
-      const parts = key.split('.')
-      let current = changes
-      for (let i = 0; i < parts.length - 1; i++) {
-        const part = parts[i]!
-        if (!(part in current) || typeof current[part] !== 'object') {
-          current[part] = {}
-        }
-        current = current[part] as Record<string, unknown>
+    if (configMode.value === 'yaml') {
+      // YAML 模式：保存原始 YAML
+      await configStore.updateRawConfig(yamlConfig.value)
+      originalYamlConfig.value = yamlConfig.value
+      // 保存后重新解析配置以同步
+      try {
+        const parsedConfig = yaml.load(yamlConfig.value) as Record<string, unknown>
+        configValues.value = JSON.parse(JSON.stringify(parsedConfig))
+        originalConfigValues.value = JSON.parse(JSON.stringify(parsedConfig))
+      } catch {
+        // ignore parse error
       }
-      current[parts[parts.length - 1]!] = configValues.value[key]
-    })
-    await configStore.updateConfig(changes)
-    originalConfigValues.value = { ...configValues.value }
+    } else {
+      // 可视化模式：将 JSON 对象转换为 YAML 后保存
+      const yamlContent = yaml.dump(configValues.value, {
+        indent: 2,
+        lineWidth: -1,
+        noRefs: true,
+        sortKeys: false,
+      })
+      await configStore.updateRawConfig(yamlContent)
+      originalConfigValues.value = JSON.parse(JSON.stringify(configValues.value))
+      originalYamlConfig.value = yamlContent
+      // 更新 YAML 显示
+      yamlConfig.value = yamlContent
+    }
     message.success(t('pages.hermesSystem.rawConfigSaveSuccess'))
   } catch {
     message.error(t('pages.hermesSystem.rawConfigSaveFailed'))
@@ -302,21 +537,25 @@ function handleConfigValueChange(key: string, value: unknown) {
 }
 
 function handleResetConfigField(key: string) {
-  configValues.value[key] = originalConfigValues.value[key]
+  const originalValue = originalConfigValues.value[key]
+  configValues.value[key] = typeof originalValue === 'object' && originalValue !== null
+    ? JSON.parse(JSON.stringify(originalValue))
+    : originalValue
 }
 
 function handleResetAllConfig() {
-  configValues.value = { ...originalConfigValues.value }
-  yamlConfig.value = JSON.stringify(originalConfigValues.value, null, 2)
+  configValues.value = JSON.parse(JSON.stringify(originalConfigValues.value))
+  // 重置 YAML 显示为原始内容
+  yamlConfig.value = originalYamlConfig.value
 }
 
 function handleYamlConfigChange(value: string) {
   yamlConfig.value = value
   try {
-    const parsed = JSON.parse(value)
-    configValues.value = parsed
+    const parsedConfig = yaml.load(value) as Record<string, unknown>
+    configValues.value = JSON.parse(JSON.stringify(parsedConfig))
   } catch {
-    // Invalid JSON, ignore
+    // Invalid YAML, ignore
   }
 }
 
@@ -494,7 +733,7 @@ async function handleSaveEditEnv(key: string) {
               </NText>
               <div class="overview-stat-value">
                 <NText strong style="font-size: 18px;">
-                  {{ status ? formatUptime(status.uptime) : '-' }}
+                  {{ uptimeDisplay }}
                 </NText>
               </div>
             </div>
@@ -511,8 +750,8 @@ async function handleSaveEditEnv(key: string) {
                 {{ t('pages.hermesSystem.status.platform') }}
               </NText>
               <div class="overview-stat-value">
-                <NTag v-if="status?.platform" :bordered="false" round type="info">
-                  {{ status.platform }}
+                <NTag v-if="platformDisplay" :bordered="false" round type="info">
+                  {{ platformDisplay }}
                 </NTag>
                 <NText v-else depth="3">-</NText>
               </div>
@@ -545,6 +784,54 @@ async function handleSaveEditEnv(key: string) {
                 </NFormItem>
                 <NFormItem :label="t('pages.hermesSystem.form.apiUrl')">
                   <NInput v-model:value="connForm.apiUrl" placeholder="http://localhost:8642" />
+                </NFormItem>
+                <NFormItem :label="t('pages.hermesSystem.form.autoStartDashboard')">
+                  <NSpace vertical :size="8" style="width: 100%;">
+                    <NRadioGroup
+                      :value="connForm.autoStartDashboard ? 'auto' : 'manual'"
+                      :disabled="dashboardLoading"
+                      @update:value="(val) => connForm.autoStartDashboard = val === 'auto'"
+                    >
+                      <NRadio value="auto">
+                        {{ t('pages.hermesSystem.form.autoStartAuto') }}
+                      </NRadio>
+                      <NRadio value="manual">
+                        {{ t('pages.hermesSystem.form.autoStartManual') }}
+                      </NRadio>
+                    </NRadioGroup>
+                    <NText depth="3" style="font-size: 11px;">
+                      {{ connForm.autoStartDashboard 
+                        ? t('pages.hermesSystem.form.autoStartAutoHint') 
+                        : t('pages.hermesSystem.form.autoStartManualHint') }}
+                    </NText>
+                    <!-- 自动启动模式：显示 Dashboard 状态 -->
+                    <NSpace v-if="connForm.autoStartDashboard" :size="8" align="center">
+                      <template v-if="connectionStore.dashboardStatus.running">
+                        <NTag type="success" size="small" :bordered="false">
+                          {{ t('pages.hermesSystem.dashboard.running') }} (PID: {{ connectionStore.dashboardStatus.pid }})
+                        </NTag>
+                        <NButton size="tiny" quaternary type="error" :loading="dashboardLoading" @click="handleStopDashboard">
+                          {{ t('pages.hermesSystem.dashboard.stop') }}
+                        </NButton>
+                      </template>
+                      <template v-else-if="connectionStore.dashboardStatus.error">
+                        <NTag type="error" size="small" :bordered="false">
+                          {{ t('pages.hermesSystem.dashboard.error') }}: {{ connectionStore.dashboardStatus.error }}
+                        </NTag>
+                        <NButton size="tiny" quaternary type="info" :loading="dashboardLoading" @click="handleStartDashboard">
+                          {{ t('pages.hermesSystem.dashboard.start') }}
+                        </NButton>
+                      </template>
+                      <template v-else>
+                        <NTag type="warning" size="small" :bordered="false">
+                          {{ t('pages.hermesSystem.dashboard.stopped') }}
+                        </NTag>
+                        <NButton size="tiny" quaternary type="info" :loading="dashboardLoading" @click="handleStartDashboard">
+                          {{ t('pages.hermesSystem.dashboard.start') }}
+                        </NButton>
+                      </template>
+                    </NSpace>
+                  </NSpace>
                 </NFormItem>
               </NForm>
             </div>
@@ -818,33 +1105,7 @@ async function handleSaveEditEnv(key: string) {
               <template v-if="configMode === 'visual'">
                 <ConfigEditorPanel
                   v-model="configValues"
-                  :schema="{
-                    categories: DEFAULT_HERMES_CONFIG_SCHEMA.categories.map(cat => ({
-                      id: cat.id,
-                      name: cat.label,
-                      icon: cat.icon,
-                      description: cat.description,
-                    })),
-                    fields: Object.fromEntries(
-                      DEFAULT_HERMES_CONFIG_SCHEMA.categories.map(cat => [
-                        cat.id,
-                        cat.fields.map(field => ({
-                          key: field.key,
-                          label: field.label,
-                          description: field.description,
-                          type: field.type,
-                          defaultValue: field.defaultValue,
-                          placeholder: field.placeholder,
-                          options: field.options?.map(opt => ({
-                            label: opt.label,
-                            value: opt.value as string | number,
-                          })),
-                          validation: field.validation,
-                          unit: field.unit,
-                        })),
-                      ])
-                    ),
-                  }"
+                  :schema="dynamicConfigSchema"
                   :disabled="configSaving"
                   :saving="configSaving"
                   @save="handleSaveConfig"
@@ -878,22 +1139,23 @@ async function handleSaveEditEnv(key: string) {
                   <div class="raw-config-editor">
                     <div v-if="showLineNumbers" class="raw-config-line-numbers">
                       <div
-                        v-for="(_, index) in yamlConfig.split('\n')"
+                        v-for="(_, index) in yamlLines"
                         :key="index"
                         class="raw-config-line-number"
                       >
                         {{ index + 1 }}
                       </div>
                     </div>
-                    <NInput
-                      :value="yamlConfig"
-                      type="textarea"
-                      :autosize="{ minRows: 20, maxRows: 50 }"
-                      class="raw-config-textarea"
-                      :class="{ 'raw-config-textarea--with-lines': showLineNumbers }"
-                      style="font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 13px;"
-                      @update:value="handleYamlConfigChange"
-                    />
+                    <div class="raw-config-content">
+                      <NInput
+                        :value="yamlConfig"
+                        type="textarea"
+                        :autosize="{ minRows: 25 }"
+                        class="raw-config-textarea"
+                        placeholder="YAML 配置内容"
+                        @update:value="handleYamlConfigChange"
+                      />
+                    </div>
                   </div>
                 </NSpace>
               </template>
@@ -1073,8 +1335,8 @@ async function handleSaveEditEnv(key: string) {
   display: flex;
   border-radius: var(--radius, 8px);
   border: 1px solid var(--n-border-color, #efeff5);
-  overflow: hidden;
   background: var(--n-color-modal, #fafafa);
+  min-height: 400px;
 }
 
 .raw-config-line-numbers {
@@ -1092,17 +1354,48 @@ async function handleSaveEditEnv(key: string) {
   text-align: right;
   padding: 0 10px;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.6;
+  height: 20.8px;
   color: var(--n-text-color-disabled, #bbb);
+  white-space: nowrap;
+}
+
+[data-theme='dark'] .raw-config-editor {
+  background: var(--bg-secondary);
+  border-color: var(--border-color);
+}
+
+[data-theme='dark'] .raw-config-line-numbers {
+  background: rgba(255, 255, 255, 0.03);
+  border-right-color: var(--border-color);
+}
+
+[data-theme='dark'] .raw-config-line-number {
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.raw-config-content {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.raw-config-textarea {
+  position: relative;
+  z-index: 1;
 }
 
 .raw-config-textarea :deep(.n-input__textarea-el) {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace !important;
+  font-size: 13px !important;
   line-height: 1.6 !important;
+  padding: 12px !important;
 }
 
-.raw-config-textarea--with-lines :deep(.n-input-wrapper) {
-  padding-left: 0 !important;
+.raw-config-textarea :deep(.n-input-wrapper) {
+  background: transparent !important;
+  padding: 0 !important;
 }
 
 /* ---- Button hover animations ---- */

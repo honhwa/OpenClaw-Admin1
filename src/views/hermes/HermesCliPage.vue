@@ -37,10 +37,15 @@ import {
 } from '@vicons/ionicons5'
 import { useI18n } from 'vue-i18n'
 import { useHermesCliStore, type HermesCliSessionInfo } from '@/stores/hermes-cli'
+import { useHermesConnectionStore } from '@/stores/hermes/connection'
+import { useHermesModelStore } from '@/stores/hermes/model'
+import { useHermesConfigStore } from '@/stores/hermes/config'
 
 const message = useMessage()
 const { t } = useI18n()
 const hermesCliStore = useHermesCliStore()
+const hermesModelStore = useHermesModelStore()
+const hermesConfigStore = useHermesConfigStore()
 
 const terminalContainerRef = ref<HTMLDivElement | null>(null)
 const isFullscreen = ref(false)
@@ -63,12 +68,10 @@ function onLaunchConfigChange(names: string[]) {
   showLaunchConfig.value = names.includes('launch-config')
 }
 const launchConfig = ref({
-  model: '',
-  provider: null as string | null,
+  model: null as string | null,
   skills: [] as string[],
   toolsets: '',
   resumeSession: '',
-  continueSession: '',
   yolo: false,
   checkpoints: false,
   maxTurns: null as number | null,
@@ -77,21 +80,23 @@ const launchConfig = ref({
   source: '',
 })
 
-const providerOptions = computed(() => [
-  { label: 'auto', value: 'auto' },
-  { label: 'openrouter', value: 'openrouter' },
-  { label: 'anthropic', value: 'anthropic' },
-  { label: 'gemini', value: 'gemini' },
-  { label: 'custom', value: 'custom' },
-])
+const modelOptions = computed(() => {
+  const options = [{ label: 'auto (默认)', value: 'auto' }]
+  for (const model of hermesModelStore.allSelectableModels) {
+    options.push({
+      label: model.label,
+      value: model.modelId,
+    })
+  }
+  return options
+})
+
+
 
 function buildCliArgs(): string[] {
   const args: string[] = ['chat']
-  if (launchConfig.value.model) {
-    args.push('-m', launchConfig.value.model)
-  }
-  if (launchConfig.value.provider) {
-    args.push('--provider', launchConfig.value.provider)
+  if (launchConfig.value.model && launchConfig.value.model !== 'auto') {
+    args.push('--model', launchConfig.value.model)
   }
   for (const skill of launchConfig.value.skills) {
     args.push('-s', skill)
@@ -101,9 +106,6 @@ function buildCliArgs(): string[] {
   }
   if (launchConfig.value.resumeSession) {
     args.push('-r', launchConfig.value.resumeSession)
-  }
-  if (launchConfig.value.continueSession) {
-    args.push('-c', launchConfig.value.continueSession)
   }
   if (launchConfig.value.yolo) {
     args.push('--yolo')
@@ -128,6 +130,41 @@ function buildCliArgs(): string[] {
 
 const editingSessionId = ref<string | null>(null)
 const editingSessionName = ref('')
+
+const hermesSessions = ref<Array<{ id: string; title?: string; createdAt?: string }>>([])
+const hermesSessionsLoading = ref(false)
+const hermesConnectionStore = useHermesConnectionStore()
+
+async function fetchHermesSessions() {
+  hermesSessionsLoading.value = true
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    }
+    const apiKey = hermesConnectionStore.connectionConfig.apiKey
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`
+    }
+
+    const response = await fetch('/api/hermes/sessions', { headers })
+    if (response.ok) {
+      const data = await response.json()
+      const rawSessions = Array.isArray(data) ? data : (data.sessions || [])
+      hermesSessions.value = rawSessions
+    }
+  } catch {
+    // Ignore
+  } finally {
+    hermesSessionsLoading.value = false
+  }
+}
+
+const hermesSessionOptions = computed(() => {
+  return hermesSessions.value.map(s => ({
+    label: s.title || s.id.slice(0, 8),
+    value: s.id,
+  }))
+})
 
 const connectedSessions = computed(() =>
   hermesCliStore.sessions.filter(s => s.status === 'connected'),
@@ -446,7 +483,14 @@ onMounted(async () => {
   window.addEventListener('resize', handleTerminalResize)
   window.addEventListener('keydown', handleKeyDown)
 
-  await hermesCliStore.fetchSessions()
+  // 使用 allSettled 避免连接失败时中断其他操作
+  await Promise.allSettled([
+    hermesCliStore.fetchSessions(),
+    fetchHermesSessions(),
+    hermesModelStore.fetchModels(),
+    hermesModelStore.fetchEnvVars(),
+    hermesConfigStore.fetchConfig(),
+  ])
 
   if (hermesCliStore.sessions.length > 0) {
     const lastSession = hermesCliStore.sessions[hermesCliStore.sessions.length - 1]!
@@ -671,20 +715,11 @@ onUnmounted(() => {
 
               <div class="launch-config-section">
                 <div class="launch-config-row">
-                  <NText class="launch-config-label">{{ t('pages.hermesCli.model') }}</NText>
-                  <NInput
-                    v-model:value="launchConfig.model"
-                    :placeholder="'claude-sonnet-4'"
-                    class="launch-config-input"
-                  />
-                </div>
-
-                <div class="launch-config-row">
-                  <NText class="launch-config-label">{{ t('pages.hermesCli.provider') }}</NText>
+                  <NText class="launch-config-label">{{ t('pages.hermesCli.model') || '模型' }}</NText>
                   <NSelect
-                    v-model:value="launchConfig.provider"
-                    :options="providerOptions"
-                    :placeholder="'auto'"
+                    v-model:value="launchConfig.model"
+                    :options="modelOptions"
+                    :placeholder="'auto (默认)'"
                     clearable
                     class="launch-config-input"
                   />
@@ -722,20 +757,20 @@ onUnmounted(() => {
 
                 <div class="launch-config-row">
                   <NText class="launch-config-label">{{ t('pages.hermesCli.resumeSession') }}</NText>
-                  <NInput
+                  <NSelect
                     v-model:value="launchConfig.resumeSession"
-                    :placeholder="'session-id'"
+                    :options="hermesSessionOptions"
+                    :loading="hermesSessionsLoading"
+                    :placeholder="t('pages.hermesCli.selectSession') || '选择会话'"
+                    clearable
+                    filterable
                     class="launch-config-input"
                   />
                 </div>
-
-                <div class="launch-config-row">
-                  <NText class="launch-config-label">{{ t('pages.hermesCli.continueSession') }}</NText>
-                  <NInput
-                    v-model:value="launchConfig.continueSession"
-                    :placeholder="'session-name'"
-                    class="launch-config-input"
-                  />
+                <div v-if="launchConfig.resumeSession" class="launch-config-hint" style="margin-top: -4px; margin-bottom: 8px;">
+                  <NText depth="3" style="font-size: 11px;">
+                    {{ t('pages.hermesCli.resumeSessionHint') || '选择已有会话以恢复其对话历史' }}
+                  </NText>
                 </div>
 
                 <div class="launch-config-toggles">

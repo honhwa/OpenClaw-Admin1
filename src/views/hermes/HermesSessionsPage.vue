@@ -214,17 +214,17 @@ const columns = computed<DataTableColumns<HermesSession>>(() => [
   {
     title: t('pages.hermesSessions.columns.actions'),
     key: 'actions',
-    width: 140,
+    width: 130,
     render(row) {
-      return h(NSpace, { size: 8, wrap: false, class: 'hermes-row-actions' }, () => [
+      return h(NSpace, { size: 4, wrap: false, class: 'hermes-row-actions' }, () => [
         h(
           NButton,
           {
-            size: 'small',
+            size: 'tiny',
             type: 'primary',
             secondary: true,
             strong: true,
-            class: 'app-toolbar-btn hermes-action-btn hermes-action-btn--chat',
+            class: 'hermes-action-btn hermes-action-btn--chat',
             onClick: () => handleJumpToChat(row),
           },
           {
@@ -240,11 +240,11 @@ const columns = computed<DataTableColumns<HermesSession>>(() => [
               h(
                 NButton,
                 {
-                  size: 'small',
+                  size: 'tiny',
                   type: 'error',
                   secondary: true,
                   strong: true,
-                  class: 'app-toolbar-btn hermes-action-btn hermes-action-btn--delete',
+                  class: 'hermes-action-btn hermes-action-btn--delete',
                 },
                 {
                   icon: () => h(NIcon, { component: TrashOutline }),
@@ -590,11 +590,11 @@ function handleNewChat() {
 }
 
 .hermes-action-btn {
-  min-width: 78px;
-  height: 34px;
-  padding: 0 12px;
-  border-radius: 9px;
-  font-size: 13px;
+  min-width: auto;
+  height: auto;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.1px;
   transition: transform 0.14s ease, box-shadow 0.2s ease;
@@ -602,6 +602,6 @@ function handleNewChat() {
 
 .hermes-action-btn:not(:disabled):hover {
   transform: translateY(-1px);
-  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
 }
 </style>

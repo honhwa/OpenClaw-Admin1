@@ -12,8 +12,20 @@ export interface HermesConnectionConfig {
 
 export interface HermesStatus {
   version: string
-  uptime: number
-  connected: boolean
+  release_date?: string
+  hermes_home?: string
+  config_path?: string
+  env_path?: string
+  config_version?: number
+  latest_config_version?: number
+  gateway_running?: boolean
+  gateway_pid?: number
+  gateway_state?: string
+  gateway_platforms?: Record<string, { state: string; error_code?: string | null; error_message?: string | null; updated_at?: string }>
+  gateway_exit_reason?: string | null
+  gateway_updated_at?: string
+  active_sessions?: number
+  connected?: boolean
   platform?: string
   hostname?: string
 }
@@ -98,6 +110,27 @@ export interface HermesModel {
   capabilities?: string[]
 }
 
+export interface ModelEndpoint {
+  id: string
+  name: string
+  baseUrl?: string
+  type: 'configured' | 'custom'
+  models: ModelEndpointModel[]
+}
+
+export interface ModelEndpointModel {
+  id: string
+  name?: string
+  isDefault?: boolean
+}
+
+export interface ModelSelection {
+  modelId: string
+  providerName: string
+  baseUrl?: string
+  type: 'configured' | 'custom'
+}
+
 // --- 配置相关 ---
 
 export interface HermesModelConfig {
@@ -109,6 +142,9 @@ export interface HermesModelConfig {
 export interface HermesConfig {
   model?: string | HermesModelConfig
   modelProvider?: string
+  provider?: string
+  providers?: Record<string, { base_url?: string; api_key?: string }>
+  custom_providers?: HermesCustomProvider[] | HermesCustomProvider
   systemPrompt?: string
   temperature?: number
   maxTokens?: number
@@ -121,7 +157,7 @@ export interface HermesConfig {
 }
 
 export interface HermesConfigUpdateParams {
-  model?: string
+  model?: string | HermesModelConfig
   modelProvider?: string
   systemPrompt?: string
   temperature?: number
@@ -310,25 +346,138 @@ export interface HermesProviderConfig {
   docsUrl?: string
   recommended?: boolean
   supportsModelList?: boolean
+  // 模型列表 API 配置
+  modelsApiPath?: string
+  modelsApiAuthType?: 'bearer' | 'x-api-key' | 'query' | 'none'
+  modelsApiExtraHeaders?: Record<string, string>
+  modelsApiQueryParam?: string
+}
+
+export interface HermesCustomProvider {
+  name: string
+  base_url: string
+  api_key?: string
+  api_mode?: 'chat_completions' | 'anthropic_messages'
+  models?: Record<string, { context_length?: number }>
+  model?: string
 }
 
 export const HERMES_PROVIDERS: HermesProviderConfig[] = [
-  { id: 'openrouter', name: 'OpenRouter', description: '推荐，支持 200+ 模型', envKey: 'OPENROUTER_API_KEY', baseUrlKey: 'OPENROUTER_BASE_URL', defaultBaseUrl: 'https://openrouter.ai/api/v1', docsUrl: 'https://openrouter.ai/keys', recommended: true, supportsModelList: true },
-  { id: 'openai', name: 'OpenAI', envKey: 'OPENAI_API_KEY', baseUrlKey: 'OPENAI_BASE_URL', defaultBaseUrl: 'https://api.openai.com/v1', docsUrl: 'https://platform.openai.com/api-keys', supportsModelList: true },
-  { id: 'anthropic', name: 'Anthropic', envKey: 'ANTHROPIC_API_KEY', docsUrl: 'https://console.anthropic.com/', supportsModelList: true },
-  { id: 'google', name: 'Google Gemini', envKey: 'GOOGLE_API_KEY', baseUrlKey: 'GEMINI_BASE_URL', docsUrl: 'https://aistudio.google.com/app/apikey', supportsModelList: true },
-  { id: 'zhipu', name: 'z.ai / ZhipuAI GLM', envKey: 'GLM_API_KEY', baseUrlKey: 'GLM_BASE_URL', defaultBaseUrl: 'https://api.z.ai/api/paas/v4', docsUrl: 'https://open.bigmodel.cn/', supportsModelList: true },
-  { id: 'kimi', name: 'Kimi / Moonshot', envKey: 'KIMI_API_KEY', baseUrlKey: 'KIMI_BASE_URL', defaultBaseUrl: 'https://api.moonshot.ai/v1', docsUrl: 'https://platform.moonshot.cn/', supportsModelList: true },
-  { id: 'minimax', name: 'MiniMax', envKey: 'MINIMAX_API_KEY', baseUrlKey: 'MINIMAX_BASE_URL', defaultBaseUrl: 'https://api.minimax.io/v1', docsUrl: 'https://www.minimax.io/', supportsModelList: true },
-  { id: 'deepseek', name: 'DeepSeek', envKey: 'DEEPSEEK_API_KEY', baseUrlKey: 'DEEPSEEK_BASE_URL', defaultBaseUrl: 'https://api.deepseek.com/v1', docsUrl: 'https://platform.deepseek.com/', supportsModelList: true },
-  { id: 'huggingface', name: 'Hugging Face', envKey: 'HF_TOKEN', baseUrlKey: 'HF_BASE_URL', defaultBaseUrl: 'https://router.huggingface.co/v1', docsUrl: 'https://huggingface.co/settings/tokens', supportsModelList: true },
-  { id: 'nous', name: 'Nous Portal', envKey: 'NOUS_API_KEY', baseUrlKey: 'HERMES_PORTAL_BASE_URL', docsUrl: 'https://nousresearch.com/', supportsModelList: true },
-  { id: 'custom', name: '自定义端点', description: '配置自定义 OpenAI 兼容端点，需手动指定模型名称', envKey: 'OPENAI_API_KEY', baseUrlKey: 'OPENAI_BASE_URL', supportsModelList: false },
+  {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    description: '推荐，支持 200+ 模型',
+    envKey: 'OPENROUTER_API_KEY',
+    baseUrlKey: 'OPENROUTER_BASE_URL',
+    defaultBaseUrl: 'https://openrouter.ai/api/v1',
+    docsUrl: 'https://openrouter.ai/keys',
+    recommended: true,
+    supportsModelList: true,
+    modelsApiPath: '/models',
+    modelsApiAuthType: 'none',
+  },
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    envKey: 'OPENAI_API_KEY',
+    baseUrlKey: 'OPENAI_BASE_URL',
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    docsUrl: 'https://platform.openai.com/api-keys',
+    supportsModelList: true,
+    modelsApiPath: '/models',
+    modelsApiAuthType: 'bearer',
+  },
+  {
+    id: 'anthropic',
+    name: 'Anthropic',
+    envKey: 'ANTHROPIC_API_KEY',
+    docsUrl: 'https://console.anthropic.com/',
+    supportsModelList: true,
+    modelsApiPath: '/v1/models',
+    modelsApiAuthType: 'x-api-key',
+    modelsApiExtraHeaders: { 'anthropic-version': '2023-06-01' },
+  },
+  {
+    id: 'google',
+    name: 'Google Gemini',
+    envKey: 'GOOGLE_API_KEY',
+    baseUrlKey: 'GEMINI_BASE_URL',
+    docsUrl: 'https://aistudio.google.com/app/apikey',
+    supportsModelList: true,
+    modelsApiPath: '/v1beta/models',
+    modelsApiAuthType: 'query',
+    modelsApiQueryParam: 'key',
+  },
+  {
+    id: 'zhipu',
+    name: 'z.ai / ZhipuAI GLM',
+    envKey: 'GLM_API_KEY',
+    baseUrlKey: 'GLM_BASE_URL',
+    defaultBaseUrl: 'https://api.z.ai/api/paas/v4',
+    docsUrl: 'https://open.bigmodel.cn/',
+    supportsModelList: true,
+    modelsApiPath: '/models',
+    modelsApiAuthType: 'bearer',
+  },
+  {
+    id: 'kimi',
+    name: 'Kimi / Moonshot',
+    envKey: 'KIMI_API_KEY',
+    baseUrlKey: 'KIMI_BASE_URL',
+    defaultBaseUrl: 'https://api.moonshot.ai/v1',
+    docsUrl: 'https://platform.moonshot.cn/',
+    supportsModelList: true,
+    modelsApiPath: '/models',
+    modelsApiAuthType: 'bearer',
+  },
+  {
+    id: 'minimax',
+    name: 'MiniMax',
+    envKey: 'MINIMAX_API_KEY',
+    baseUrlKey: 'MINIMAX_BASE_URL',
+    defaultBaseUrl: 'https://api.minimax.chat/v1',
+    docsUrl: 'https://www.minimax.io/',
+    supportsModelList: true,
+    modelsApiPath: '/models',
+    modelsApiAuthType: 'bearer',
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    envKey: 'DEEPSEEK_API_KEY',
+    baseUrlKey: 'DEEPSEEK_BASE_URL',
+    defaultBaseUrl: 'https://api.deepseek.com',
+    docsUrl: 'https://platform.deepseek.com/',
+    supportsModelList: true,
+    modelsApiPath: '/models',
+    modelsApiAuthType: 'bearer',
+  },
+  {
+    id: 'huggingface',
+    name: 'Hugging Face',
+    envKey: 'HF_TOKEN',
+    baseUrlKey: 'HF_BASE_URL',
+    defaultBaseUrl: 'https://router.huggingface.co/v1',
+    docsUrl: 'https://huggingface.co/settings/tokens',
+    supportsModelList: true,
+    modelsApiPath: '/models',
+    modelsApiAuthType: 'bearer',
+  },
+  {
+    id: 'nous',
+    name: 'Nous Portal',
+    envKey: 'NOUS_API_KEY',
+    baseUrlKey: 'HERMES_PORTAL_BASE_URL',
+    docsUrl: 'https://nousresearch.com/',
+    supportsModelList: true,
+    modelsApiPath: '/v1/models',
+    modelsApiAuthType: 'bearer',
+  },
 ]
 
 // --- 配置 Schema 相关 ---
 
-export type ConfigFieldType = 'text' | 'number' | 'boolean' | 'select' | 'textarea'
+export type ConfigFieldType = 'text' | 'number' | 'boolean' | 'select' | 'textarea' | 'json'
 
 export interface ConfigFieldValidation {
   min?: number
@@ -349,7 +498,7 @@ export interface ConfigFieldSchema {
   label: string
   description?: string
   type: ConfigFieldType
-  defaultValue?: string | number | boolean
+  defaultValue?: unknown
   options?: ConfigFieldOption[]
   validation?: ConfigFieldValidation
   placeholder?: string
@@ -362,7 +511,7 @@ export interface ConfigCategory {
   label: string
   icon?: string
   description?: string
-  fields: ConfigFieldSchema[]
+  fields?: ConfigFieldSchema[]
 }
 
 export interface HermesConfigSchema {

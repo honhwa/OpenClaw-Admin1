@@ -38,8 +38,9 @@ import { useHermesSessionStore } from '@/stores/hermes/session'
 import { useHermesModelStore } from '@/stores/hermes/model'
 import { useHermesSkillStore } from '@/stores/hermes/skill'
 import { useHermesConnectionStore } from '@/stores/hermes/connection'
+import { useHermesConfigStore } from '@/stores/hermes/config'
 import { renderSimpleMarkdown } from '@/utils/markdown'
-import type { HermesMessage } from '@/api/hermes/types'
+import type { HermesMessage, ModelSelection } from '@/api/hermes/types'
 
 const { t, locale } = useI18n()
 const message = useMessage()
@@ -48,6 +49,7 @@ const sessionStore = useHermesSessionStore()
 const modelStore = useHermesModelStore()
 const skillStore = useHermesSkillStore()
 const connStore = useHermesConnectionStore()
+const configStore = useHermesConfigStore()
 
 // ---- Types ----
 
@@ -111,7 +113,7 @@ const BOTTOM_GAP = 32
 // ---- State ----
 
 const inputText = ref('')
-const selectedModel = ref<string | null>(null)
+const selectedModelSelection = ref<ModelSelection | null>(null)
 const messageListRef = ref<HTMLElement | null>(null)
 
 // Auto-scroll
@@ -167,7 +169,9 @@ const commands = computed<CommandItem[]>(() => {
         // Re-send the last user message
         const lastUserMsg = [...chatStore.messages].reverse().find(m => m.role === 'user')
         if (lastUserMsg) {
-          chatStore.sendMessage(lastUserMsg.content, { model: selectedModel.value || undefined }).catch(() => {})
+          chatStore.sendMessage(lastUserMsg.content, { 
+            modelSelection: selectedModelSelection.value || undefined 
+          }).catch(() => {})
         }
       },
     },
@@ -239,11 +243,16 @@ const commands = computed<CommandItem[]>(() => {
       action: (args) => {
         if (args && args.trim()) {
           const target = args.trim()
-          const found = modelStore.models.find(m => m.id === target || m.label === target)
+          // 从 allSelectableModels 中查找匹配的模型
+          const found = modelStore.allSelectableModels.find(m => m.modelId === target || m.label === target)
           if (found) {
-            selectedModel.value = found.id
-            modelStore.setCurrentModel(found.id)
-            message.success(t('pages.hermesChat.cmdModelSwitched', { model: found.label || found.id }))
+            selectedModelSelection.value = {
+              modelId: found.modelId,
+              providerName: found.providerName,
+              baseUrl: found.baseUrl,
+              type: found.type,
+            }
+            message.success(t('pages.hermesChat.cmdModelSwitched', { model: found.label || found.modelId }))
           } else {
             message.warning(t('pages.hermesChat.cmdModelNotFound', { model: target }))
           }
@@ -383,12 +392,7 @@ const filteredCommands = computed(() => {
 
 // ---- Computed ----
 
-const modelOptions = computed(() =>
-  modelStore.models.map((m) => ({
-    label: m.label || m.id,
-    value: m.id,
-  })),
-)
+
 
 const isConnected = computed(() => connStore.hermesConnected)
 
@@ -683,6 +687,15 @@ onMounted(async () => {
   try {
     await modelStore.fetchModels()
   } catch { /* ignore */ }
+  try {
+    await configStore.fetchConfig()
+  } catch { /* ignore */ }
+
+  // 同步当前模型选择
+  modelStore.syncCurrentModelSelectionFromConfig()
+  if (modelStore.currentModelSelection) {
+    selectedModelSelection.value = modelStore.currentModelSelection
+  }
 
   // Auto-select first session if none selected
   if (!chatStore.currentSessionId && sessionStore.sessions.length > 0) {
@@ -817,15 +830,9 @@ watch(
 
 function handleInputUpdate(value: string) {
   inputText.value = value
-  if (value.startsWith('/') && !value.includes('\n')) {
-    const spaceIdx = value.indexOf(' ')
-    commandFilter.value = spaceIdx >= 0 ? value.slice(0, spaceIdx) : value
-    showCommandPanel.value = true
-    selectedCommandIndex.value = 0
-  } else {
-    showCommandPanel.value = false
-    commandFilter.value = ''
-  }
+  // Always hide command panel since we're sending all / commands directly to Hermes
+  showCommandPanel.value = false
+  commandFilter.value = ''
 }
 
 function handleCommandSelect(cmd: CommandItem) {
@@ -894,38 +901,15 @@ function handleSend() {
   const text = inputText.value.trim()
   if (!text || chatStore.streaming) return
 
-  // If command panel is open and a command is selected, handle it
-  if (showCommandPanel.value && filteredCommands.value.length > 0) {
-    const cmd = filteredCommands.value[selectedCommandIndex.value]
-    if (cmd) {
-      handleCommandSelect(cmd)
-      return
-    }
-  }
-
-  // Check if input starts with a known command (e.g. "/model qwen3.5")
-  if (text.startsWith('/')) {
-    const spaceIdx = text.indexOf(' ')
-    const cmdKey = spaceIdx >= 0 ? text.slice(0, spaceIdx) : text
-    const args = spaceIdx >= 0 ? text.slice(spaceIdx + 1).trim() : ''
-    const matchedCmd = commands.value.find(c => c.key === cmdKey)
-
-    if (matchedCmd) {
-      inputText.value = ''
-      showCommandPanel.value = false
-      commandFilter.value = ''
-      matchedCmd.action(args)
-      return
-    }
-    // Unknown command — send as normal message to the AI
-  }
+  // All commands starting with / should be sent directly to Hermes
+  // Frontend doesn't need to handle any command processing
 
   inputText.value = ''
   showCommandPanel.value = false
   commandFilter.value = ''
 
   chatStore.sendMessage(text, {
-    model: selectedModel.value || undefined,
+    modelSelection: selectedModelSelection.value || undefined,
   }).catch(() => {
     message.error(chatStore.error || t('pages.hermesChat.sendFailed'))
   })
@@ -1847,14 +1831,6 @@ function handleSaveQuickReply() {
             <NCard embedded :bordered="false" class="chat-transcript-card">
               <NSpace justify="space-between" align="center" style="margin-bottom: 10px;">
                 <NSpace align="center" :size="8">
-                  <NSelect
-                    v-model:value="selectedModel"
-                    :options="modelOptions"
-                    :placeholder="t('pages.hermesChat.selectModel')"
-                    clearable
-                    style="width: 240px;"
-                    size="small"
-                  />
                   <NTag v-if="messageCount > 0" size="small" :bordered="false" round>
                     {{ messageCount }} {{ t('pages.hermesChat.messages') }}
                   </NTag>
